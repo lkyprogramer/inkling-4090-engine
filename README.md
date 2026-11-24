@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://www.syntheticmindslab.com/astral">
-    <img src="./HX2L3bAXQAAPMhp.jpg" alt="Astral Inference Server" width="100%">
+    <img src="./HX2L3bAXQAAPMhp.jpeg" alt="Astral Inference Server" width="100%">
   </a>
 </p>
 
