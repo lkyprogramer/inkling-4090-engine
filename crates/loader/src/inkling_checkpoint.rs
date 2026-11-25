@@ -320,6 +320,29 @@ fn e8m0(s: u8) -> f32 {
     }
 }
 
+/// Fills `out` (`rows` rows of `row_bytes`) by calling `f(row, dst)` on every CPU core.
+fn par_rows(out: &mut [u8], row_bytes: usize, f: impl Fn(usize, &mut [u8]) -> Result<()> + Sync) -> Result<()> {
+    let rows = out.len() / row_bytes;
+    let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).clamp(1, rows.max(1));
+    let per = rows.div_ceil(threads);
+    std::thread::scope(|sc| {
+        let jobs: Vec<_> = out
+            .chunks_mut(per * row_bytes)
+            .enumerate()
+            .map(|(t, chunk)| {
+                let f = &f;
+                sc.spawn(move || -> Result<()> {
+                    for (i, dst) in chunk.chunks_mut(row_bytes).enumerate() {
+                        f(t * per + i, dst)?;
+                    }
+                    Ok(())
+                })
+            })
+            .collect();
+        jobs.into_iter().try_for_each(|j| j.join().map_err(|_| bad("conversion thread panicked".into()))?)
+    })
+}
+
 /// Source row for GGUF row `r` of `n`: interleaved gate/up rows become gate half, up half.
 fn src_row(r: usize, n: usize, split: bool) -> usize {
     if !split {
@@ -358,7 +381,16 @@ fn build(src: &Source, recipe: &Recipe, info: &TensorInfo, dim: usize) -> Result
             }
             src.raw(name)?
         }
-        Recipe::Q8(name) => astral_quant::quantize_q8_0(&src.f32(name)?)?,
+        Recipe::Q8(name) => {
+            let k = info.dims[0] as usize;
+            let v = src.f32(name)?;
+            let mut out = vec![0u8; info.n_bytes as usize];
+            par_rows(&mut out, k / 32 * 34, |r, dst| {
+                dst.copy_from_slice(&astral_quant::quantize_q8_0(&v[r * k..(r + 1) * k])?);
+                Ok(())
+            })?;
+            out
+        }
         Recipe::MsgQuery(i) => {
             let q = src.f32("model.llm.middle_cycle_cross_pass_queries")?;
             let kv = src.f32("model.llm.middle_cycle_cross_pass_kv_queries")?;
@@ -384,29 +416,28 @@ fn build(src: &Source, recipe: &Recipe, info: &TensorInfo, dim: usize) -> Result
             }
             let nb = k / 64;
             let mut out = vec![0u8; e * n * nb * 36];
-            let mut vals = vec![0u8; k];
-            for ex in 0..e {
-                for r in 0..n {
-                    let sr = ex * n + src_row(r, n, *split);
-                    let qs = &w[sr * k / 2..(sr + 1) * k / 2];
-                    let ds = &sc[sr * k / 16..(sr + 1) * k / 16];
-                    for (j, &b) in qs.iter().enumerate() {
-                        vals[2 * j] = b & 0xf;
-                        vals[2 * j + 1] = b >> 4;
-                    }
-                    let dst = &mut out[(ex * n + r) * nb * 36..(ex * n + r + 1) * nb * 36];
-                    for b in 0..nb {
-                        let blk = &mut dst[b * 36..(b + 1) * 36];
-                        blk[..4].copy_from_slice(&ds[b * 4..b * 4 + 4]);
-                        for s in 0..4 {
-                            let v = &vals[b * 64 + s * 16..b * 64 + s * 16 + 16];
-                            for j in 0..8 {
-                                blk[4 + s * 8 + j] = v[j] | (v[j + 8] << 4);
-                            }
+            par_rows(&mut out, nb * 36, |row, dst| {
+                let (ex, r) = (row / n, row % n);
+                let sr = ex * n + src_row(r, n, *split);
+                let qs = &w[sr * k / 2..(sr + 1) * k / 2];
+                let ds = &sc[sr * k / 16..(sr + 1) * k / 16];
+                let mut vals = vec![0u8; k];
+                for (j, &b) in qs.iter().enumerate() {
+                    vals[2 * j] = b & 0xf;
+                    vals[2 * j + 1] = b >> 4;
+                }
+                for b in 0..nb {
+                    let blk = &mut dst[b * 36..(b + 1) * 36];
+                    blk[..4].copy_from_slice(&ds[b * 4..b * 4 + 4]);
+                    for s in 0..4 {
+                        let v = &vals[b * 64 + s * 16..b * 64 + s * 16 + 16];
+                        for j in 0..8 {
+                            blk[4 + s * 8 + j] = v[j] | (v[j + 8] << 4);
                         }
                     }
                 }
-            }
+                Ok(())
+            })?;
             out
         }
         Recipe::Mxfp8ToQ8(base, split) => {
@@ -417,17 +448,14 @@ fn build(src: &Source, recipe: &Recipe, info: &TensorInfo, dim: usize) -> Result
                 return Err(bad(format!("{base}: unexpected MXFP8 sizes")));
             }
             let lut: Vec<f32> = (0..=255u8).map(e4m3).collect();
-            let mut row = vec![0f32; k];
-            let mut out = Vec::with_capacity(e * n * k / 32 * 34);
-            for ex in 0..e {
-                for r in 0..n {
-                    let sr = ex * n + src_row(r, n, *split);
-                    for (j, x) in row.iter_mut().enumerate() {
-                        *x = lut[w[sr * k + j] as usize] * e8m0(sc[sr * k / 32 + j / 32]);
-                    }
-                    out.extend(astral_quant::quantize_q8_0(&row)?);
-                }
-            }
+            let mut out = vec![0u8; e * n * k / 32 * 34];
+            par_rows(&mut out, k / 32 * 34, |row, dst| {
+                let (ex, r) = (row / n, row % n);
+                let sr = ex * n + src_row(r, n, *split);
+                let x: Vec<f32> = (0..k).map(|j| lut[w[sr * k + j] as usize] * e8m0(sc[sr * k / 32 + j / 32])).collect();
+                dst.copy_from_slice(&astral_quant::quantize_q8_0(&x)?);
+                Ok(())
+            })?;
             out
         }
     })
