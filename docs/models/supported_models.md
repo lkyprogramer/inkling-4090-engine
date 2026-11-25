@@ -7,6 +7,8 @@ Each architecture in Astral is implemented natively, kernel by kernel, and verif
 | Inkling 2 Mini | `inkling2_loop` (looped MoE, attention residuals, short convolutions) | GGUF (`UD-Q4_K_XL`: Q8_0, NVFP4, BF16, F32) | ✅ | ✅ DSpark draft (`mtp.safetensors`) | Verified layer by layer against llama.cpp |
 | Qwen3.8-27B | Hybrid gated delta-net + attention | MXFP4 safetensors | CLI only | — | Greedy output matches vLLM |
 
+Support for more models is coming soon.
+
 ## Weight formats
 
 | Format | Decode | Prefill |

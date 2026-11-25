@@ -18,7 +18,7 @@ Fast, lean LLM inference and serving in Rust and CUDA
 
 🔥 **New:** speculative decoding with the official Inkling 2 Mini DSpark draft and an adaptive draft length. On one H100, Astral decodes **1.32×** faster than vLLM without a draft and **1.11×** faster with one. See the [benchmarks](docs/benchmarks/inkling2_mini.md).
 
-> **Status: in development.** The first release is planned for December 2026. **Join the beta:** https://www.syntheticmindslab.com/astral
+> **Status:** Version 2.5 is now open source and ready for testing.
 
 ---
 
@@ -44,12 +44,12 @@ Astral is flexible and easy to use with:
 - GGUF and safetensors loading
 - A bounded request queue with cancel-on-disconnect
 
-Astral supports:
+Astral currently supports:
 
-- Inkling 2 Mini (GGUF `UD-Q4_K_XL`), with or without its DSpark draft
+- Inkling 2 Mini ([`Inkling-2-Mini-Astral-GGUF`](https://huggingface.co/synthetic-minds/Inkling-2-Mini-Astral-GGUF), Q4_K_M), with or without its DSpark draft
 - Qwen3.8-27B (MXFP4 safetensors), from the command line
 
-Find the full list of supported models [here](docs/models/supported_models.md).
+Support for more models is coming soon. Find the full list of supported models [here](docs/models/supported_models.md).
 
 ## Performance
 
@@ -78,7 +78,7 @@ ASTRAL_CUDA_ARCHS=80,90a cargo build --release
 Serve Inkling 2 Mini with its DSpark draft:
 
 ```bash
-./target/release/astral serve Inkling-2-Mini-UD-Q4_K_XL.gguf --checkpoint Inkling-2-Mini/
+./target/release/astral serve Inkling-2-Mini-Astral-Q-Q4_K_M.gguf --checkpoint Inkling-2-Mini/
 ```
 
 Visit our [documentation](docs/README.md) to learn more.
