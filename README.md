@@ -22,6 +22,12 @@ Fast, lean LLM inference and serving in Rust and CUDA
 
 ---
 
+## Support
+
+Astral Inference Server is free and open source. If it is useful to you, you can help fund its development:
+
+<a href="https://buymeacoffee.com/syntheticminds_lab"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me a Coffee" height="48"></a>
+
 ## About
 
 Astral Inference Server is an inference engine and OpenAI-compatible server for large language models. The host side is Rust and every kernel is hand-written CUDA. It ships as a single binary with no Python runtime.
