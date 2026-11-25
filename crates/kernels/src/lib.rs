@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: Apache-2.0
 // Copyright (c) 2026 Synthetic Minds LTD
 //! `astral-kernels`: loads the embedded fatbins and exposes typed, bounds-checked
 //! launchers. Each launcher in [`ops`] is the single place that mirrors a kernel's

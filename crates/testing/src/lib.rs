@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: Apache-2.0
 // Copyright (c) 2026 Synthetic Minds LTD
 //! `astral-testing`: deterministic RNG, numeric comparison, and the GPU self-test that
 //! checks every kernel against its CPU reference (spec 08, layer L2).

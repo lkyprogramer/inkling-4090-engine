@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 Synthetic Minds LTD
 """Stream a chat answer from an Astral server: reasoning first, then the answer."""
 

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: Apache-2.0
 // Copyright (c) 2026 Synthetic Minds LTD
 //
 // Inkling 2 DSpark speculative decoding: the checkpoint's draft model (`mtp.safetensors`) and

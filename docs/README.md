@@ -21,7 +21,7 @@ Astral Inference Server is an inference engine and OpenAI-compatible server for 
 
 ## Editions
 
-This is the Developer edition (AGPL-3.0): one node, one or more GPUs. Multi-node serving, custom deployments and support are offered in the Enterprise edition; see the [README](../README.md#editions).
+This is the Developer edition (Apache-2.0): one node, one or more GPUs. Multi-node serving, custom deployments and support are offered in the Enterprise edition; see the [README](../README.md#editions).
 
 ## Design
 

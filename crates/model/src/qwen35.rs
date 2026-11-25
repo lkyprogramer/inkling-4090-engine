@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: Apache-2.0
 // Copyright (c) 2026 Synthetic Minds LTD
 //! Qwen3.8-27B (`qwen3_5`, text model) on the GPU from the compressed-tensors MXFP4
 //! checkpoint (`Qwen3.8-27B-MXFP4`).

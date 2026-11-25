@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: Apache-2.0
 // Copyright (c) 2026 Synthetic Minds LTD
 //! CUDA graph capture and replay (R-RT-4). Decode steps are captured once per
 //! batch-size bucket and replayed, removing per-kernel CPU launch overhead.

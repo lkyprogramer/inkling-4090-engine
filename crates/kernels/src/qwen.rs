@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: Apache-2.0
 // Copyright (c) 2026 Synthetic Minds LTD
 //! Typed launchers for `cu/qwen.cu` (Qwen3.8-27B / `qwen3_5`). Each checks buffer sizes before
 //! launching; device-side indices (token, position) are clamped by the kernels.
