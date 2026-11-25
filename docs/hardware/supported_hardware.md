@@ -17,7 +17,7 @@ Features enable themselves by compute capability:
 
 ## Memory
 
-Inkling 2 Mini (`UD-Q4_K_XL`) needs about 18 GB for weights plus 0.6 GB for the DSpark draft, and memory for the context. A 24 GB GPU is tight; 40 GB or more is recommended.
+Inkling 2 Mini needs about 18 GB for weights plus 0.6 GB for the DSpark draft, and memory for the context. A 24 GB GPU is tight; 40 GB or more is recommended.
 
 ## Not supported
 

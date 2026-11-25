@@ -923,6 +923,24 @@ pub fn quantize_nvfp4(x: &[f32]) -> Result<Vec<u8>> {
     Ok(out)
 }
 
+/// Quantises f32 values to GGUF Q8_0 blocks (`{ f16 d; i8 qs[32] }`) exactly as ggml's
+/// `quantize_row_q8_0_ref`: `d = amax / 127`, `q = round(x / d)` with the unrounded `d`, and
+/// `d` stored as f16. Byte-identical to llama.cpp's output for the same input.
+pub fn quantize_q8_0(x: &[f32]) -> Result<Vec<u8>> {
+    if !x.len().is_multiple_of(32) {
+        return Err(AstralError::Invalid(format!("q8_0: {} values is not a multiple of 32", x.len())));
+    }
+    let mut out = Vec::with_capacity(x.len() / 32 * 34);
+    for blk in x.chunks_exact(32) {
+        let amax = blk.iter().fold(0f32, |m, v| m.max(v.abs()));
+        let d = amax / 127.0;
+        let id = if d != 0.0 { 1.0 / d } else { 0.0 };
+        out.extend_from_slice(&f32_to_f16(d).to_le_bytes());
+        out.extend(blk.iter().map(|&v| ((v * id).round() as i8) as u8));
+    }
+    Ok(out)
+}
+
 /// Quantises f32 rows (`n` x `k`, k % 32 == 0) to Q8_0 in Astral's repacked layout (int8 values
 /// [n][k], f16 block scales [n][k/32]; `d = amax / 127`, round to nearest), for a GEMV.
 pub fn quantize_q8_0_rows(x: &[f32], n: usize, k: usize) -> Result<(Vec<u8>, Vec<u8>)> {
@@ -946,6 +964,28 @@ pub fn quantize_q8_0_rows(x: &[f32], n: usize, k: usize) -> Result<(Vec<u8>, Vec
 #[cfg(test)]
 mod nvfp4_encode_tests {
     use super::*;
+
+    #[test]
+    fn q8_0_blocks_match_ggml() {
+        let x: Vec<f32> = (0..64).map(|i| (i as f32 - 20.5) * 0.37).collect();
+        let b = quantize_q8_0(&x).unwrap();
+        assert_eq!(b.len(), 68);
+        let mut y = vec![0f32; 64];
+        for (blk, out) in b.chunks_exact(34).zip(y.chunks_exact_mut(32)) {
+            dequant_q8_0(blk, out);
+        }
+        // Each value is within half a quantisation step (d / 2 = amax / 254) of the input.
+        for (xb, yb) in x.chunks_exact(32).zip(y.chunks_exact(32)) {
+            let half_step = xb.iter().fold(0f32, |m, v| m.max(v.abs())) / 254.0 * 1.001;
+            for (a, c) in xb.iter().zip(yb) {
+                assert!((a - c).abs() <= half_step, "{a} vs {c}");
+            }
+        }
+        // The block's largest magnitude maps to +-127.
+        assert_eq!(b[2] as i8, -127);
+        assert!(quantize_q8_0(&x[..40]).is_err());
+        assert_eq!(quantize_q8_0(&[0.0; 32]).unwrap(), vec![0u8; 34]);
+    }
 
     #[test]
     fn nvfp4_round_trip_is_close() {

@@ -3,14 +3,16 @@
 `astral serve` exposes an OpenAI-compatible HTTP API. Existing OpenAI clients work by pointing their base URL at the server.
 
 ```bash
-astral serve <model.gguf> --checkpoint <checkpoint dir> [options]
+astral serve <model> [options]
 ```
+
+`<model>` is the model's native checkpoint directory (safetensors weights, tokenizer, configuration and draft) or a GGUF file.
 
 ## Options
 
 | Option | Default | Description |
 |---|---|---|
-| `--checkpoint <dir>` | required | Native checkpoint directory: tokenizer, configuration and DSpark draft |
+| `--checkpoint <dir>` | `<model>` | Native checkpoint directory: tokenizer, configuration and DSpark draft. Required when `<model>` is a GGUF file |
 | `--no-draft` | off | Serve without speculative decoding |
 | `--k <n>` | `6` | Most drafted tokens verified per round (1–7) |
 | `--host <addr>` | `0.0.0.0` | Listen address |

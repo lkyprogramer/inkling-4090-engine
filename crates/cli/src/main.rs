@@ -5,10 +5,13 @@
 //!   astral hw [--bench | --bench-fresh]   print detected hardware as JSON; --bench reuses a
 //!                         cached bandwidth result for this GPU/driver/clocks, --bench-fresh re-measures
 //!   astral selftest       run every GPU kernel against its CPU reference
-//!   astral gguf-info <file> [--tensors]   summarise a GGUF file (metadata, types, layout)
+//!   astral gguf-info <model> [--tensors]   summarise model weights (metadata, types, layout)
 //!   astral verify-embd <file> <eval_callback.log>   match token_embd rows against a llama.cpp dump
 //!   astral verify-model <file> <eval_callback.log>   run the prompt tokens and compare every layer slot
-//!   astral generate <file> <n> <token ids...>   greedy decode n tokens, report tok/s
+//!   astral generate <model> <n> <token ids...>   greedy decode n tokens, report tok/s
+//!   astral serve <model> [--checkpoint <dir>] [options]   the OpenAI-compatible server
+//!
+//! `<model>` is a `.gguf` file or a safetensors checkpoint directory.
 //!   astral kbench <mxfp4-gemv | mxfp4-mma | mxfp4-mma-f16> <n> <k> <b> [iters]   time one kernel (for Nsight Compute)
 //!   astral version        print version and build information
 
@@ -17,7 +20,7 @@
 use astral_core::Result;
 use std::process::ExitCode;
 
-const USAGE: &str = "usage: astral <hw [--bench | --bench-fresh] | selftest | gguf-info <file> [--tensors] | verify-embd <file> <log> | verify-model <file> <log> | generate <file> <n> <ids...> | spec-generate <gguf> <checkpoint dir> <k> <n> <ids...|@file> | serve <gguf> --checkpoint <dir> [--no-draft] [--k 6] [--host 0.0.0.0] [--port 8000] [--ctx 8192] [--name inkling-2-mini] | version>";
+const USAGE: &str = "usage: astral <hw [--bench | --bench-fresh] | selftest | gguf-info <model> [--tensors] | verify-embd <file> <log> | verify-model <file> <log> | generate <model> <n> <ids...> | spec-generate <model> <checkpoint dir> <k> <n> <ids...|@file> | serve <model> [--checkpoint <dir>] [--no-draft] [--k 6] [--host 0.0.0.0] [--port 8000] [--ctx 8192] [--name inkling-2-mini] | version>";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -96,7 +99,7 @@ fn cmd_selftest() -> Result<bool> {
 }
 
 fn cmd_gguf_info(path: &str, list_tensors: bool) -> Result<bool> {
-    let g = astral_loader::Gguf::open(path)?;
+    let g = astral_loader::open_model(path)?;
     let arch = g.architecture().unwrap_or("?").to_string();
     println!("file        {}", g.path.display());
     println!("gguf        v{}  alignment {}  data offset {}  file {} bytes", g.version, g.alignment, g.data_offset, g.file_len);
@@ -139,7 +142,7 @@ const GOLDEN_PROMPT: [u32; 5] = [371, 151451, 149879, 151194, 149884];
 
 fn load_session(path: &str, capacity: u32) -> Result<astral_model::inkling::Session> {
     let ctx = astral_gpu::Context::new(astral_gpu::Device::get(0)?)?;
-    let g = astral_loader::Gguf::open(path)?;
+    let g = astral_loader::open_model(path)?;
     let t0 = std::time::Instant::now();
     let w = astral_model::inkling::Weights::load(&ctx, &g)?;
     eprintln!("loaded {:.2} GB of weights in {:.1} s", w.bytes as f64 / 1e9, t0.elapsed().as_secs_f64());
@@ -370,12 +373,13 @@ fn cmd_cmp_prefill(path: &str, ids: &[String]) -> Result<bool> {
     Ok(true)
 }
 
-/// `serve <gguf> --checkpoint <dir> [--no-draft] [--k N] [--host H] [--port P] [--ctx N] [--name S]
-/// [--queue N]`: the OpenAI-compatible server. The checkpoint directory provides the tokenizer
-/// and the DSpark draft (used unless `--no-draft`).
+/// `serve <model> [--checkpoint <dir>] [--no-draft] [--k N] [--host H] [--port P] [--ctx N]
+/// [--name S] [--queue N]`: the OpenAI-compatible server. `<model>` is a `.gguf` file or a
+/// safetensors checkpoint directory. The checkpoint directory provides the tokenizer and the
+/// DSpark draft (used unless `--no-draft`); it defaults to `<model>` when that is a directory.
 fn cmd_serve(a: &[String]) -> Result<bool> {
     let bad = |m: String| astral_core::AstralError::Invalid(m);
-    let gguf = a.first().ok_or_else(|| bad("serve: missing GGUF path".into()))?.clone();
+    let gguf = a.first().ok_or_else(|| bad("serve: missing model (a .gguf file or a checkpoint directory)".into()))?.clone();
     let (mut ckpt, mut draft, mut k, mut host, mut port, mut ctx, mut name, mut queue) = (None::<String>, true, 6usize, "0.0.0.0".to_string(), 8000u16, 8192u32, "inkling-2-mini".to_string(), 64usize);
     let mut i = 1;
     while i < a.len() {
@@ -414,7 +418,8 @@ fn cmd_serve(a: &[String]) -> Result<bool> {
         }
         i += 1;
     }
-    let ckpt = std::path::PathBuf::from(ckpt.ok_or_else(|| bad("serve: --checkpoint <dir> (tokenizer and draft) is required".into()))?);
+    let ckpt = ckpt.or_else(|| std::path::Path::new(&gguf).is_dir().then(|| gguf.clone()));
+    let ckpt = std::path::PathBuf::from(ckpt.ok_or_else(|| bad("serve: --checkpoint <dir> (tokenizer and draft) is required with a .gguf model".into()))?);
     let engine = astral_api::engine::EngineConfig { gguf: gguf.into(), draft: draft.then(|| ckpt.clone()), k, ctx, queue };
     astral_api::serve(astral_api::ServerConfig { engine, tokenizer_dir: ckpt, host, port, model_name: name })?;
     Ok(true)

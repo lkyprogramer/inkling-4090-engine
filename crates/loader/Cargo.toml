@@ -1,6 +1,6 @@
 [package]
 name = "astral-loader"
-description = "Astral: GGUF (and later safetensors) weight loading."
+description = "Astral: model weights from GGUF files and safetensors checkpoints."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (c) 2026 Synthetic Minds LTD
-//! `astral-loader`: GGUF reader (spec 06 §5, spec 08 §7).
+//! `astral-loader`: model weights from GGUF files and from safetensors checkpoints
+//! (spec 06 §5, spec 08 §7).
+//!
+//! [`open_model`] takes either a `.gguf` file or a checkpoint directory. A checkpoint is
+//! presented as a [`Gguf`] whose tensors are converted from safetensors as they are read, so
+//! every model loads through the same tensor names, types and layouts.
 //!
 //! The loader is a parsing attack surface, so every length, count and offset read
 //! from the file is bounds-checked before it is used: strings, arrays and tensor
@@ -10,6 +15,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod inkling_checkpoint;
 pub mod safetensors;
 
 use astral_core::{AstralError, Result};
@@ -126,8 +132,16 @@ impl TensorInfo {
     }
 }
 
-/// A parsed GGUF file. Metadata and the tensor table are held in memory; tensor data
-/// stays on disk until read.
+/// Produces a tensor's bytes on demand (GGUF layout), for models not read from a GGUF file.
+pub type TensorFn = Box<dyn Fn(&TensorInfo) -> Result<Vec<u8>> + Send + Sync>;
+
+enum Source {
+    File(File),
+    Converted(TensorFn),
+}
+
+/// A parsed GGUF file, or a checkpoint presented as one. Metadata and the tensor table are
+/// held in memory; tensor data stays on disk until read.
 pub struct Gguf {
     pub path: PathBuf,
     pub version: u32,
@@ -139,7 +153,7 @@ pub struct Gguf {
     pub file_len: u64,
     meta_index: HashMap<String, usize>,
     tensor_index: HashMap<String, usize>,
-    file: File,
+    source: Source,
 }
 
 fn bad(msg: impl Into<String>) -> AstralError {
@@ -299,7 +313,38 @@ impl Gguf {
             }
         }
 
-        Ok(Self { path, version, metadata, tensors, alignment, data_offset, file_len, meta_index, tensor_index, file })
+        Ok(Self { path, version, metadata, tensors, alignment, data_offset, file_len, meta_index, tensor_index, source: Source::File(file) })
+    }
+
+    /// A model whose tensors are produced by `read` (each a whole tensor in GGUF layout).
+    /// `tensors` give names, GGML dims and types; offsets are assigned here.
+    pub fn converted(path: PathBuf, metadata: Vec<(String, Value)>, tensors: Vec<(String, Vec<u64>, GgmlType)>, read: TensorFn) -> Result<Self> {
+        let mut meta_index = HashMap::new();
+        for (i, (k, _)) in metadata.iter().enumerate() {
+            if meta_index.insert(k.clone(), i).is_some() {
+                return Err(bad(format!("duplicate key {k}")));
+            }
+        }
+        let (mut infos, mut tensor_index, mut offset) = (Vec::with_capacity(tensors.len()), HashMap::new(), 0u64);
+        for (name, dims, ty) in tensors {
+            let (blk, sz) = ty.layout().ok_or_else(|| bad(format!("tensor {name}: unsupported type {}", ty.name())))?;
+            let n_elements: u64 = dims.iter().product();
+            if dims.is_empty() || dims[0] % blk as u64 != 0 {
+                return Err(bad(format!("tensor {name}: dims {dims:?} do not fit {}", ty.name())));
+            }
+            let n_bytes = n_elements / blk as u64 * sz as u64;
+            if tensor_index.insert(name.clone(), infos.len()).is_some() {
+                return Err(bad(format!("duplicate tensor {name}")));
+            }
+            infos.push(TensorInfo { name, dims, ty, offset, n_elements, n_bytes });
+            offset += n_bytes.div_ceil(DEFAULT_ALIGNMENT) * DEFAULT_ALIGNMENT;
+        }
+        Ok(Self { path, version: 3, metadata, tensors: infos, alignment: DEFAULT_ALIGNMENT, data_offset: 0, file_len: offset, meta_index, tensor_index, source: Source::Converted(read) })
+    }
+
+    /// Whether the tensors come from a checkpoint (converted on read) rather than a GGUF file.
+    pub fn is_converted(&self) -> bool {
+        matches!(self.source, Source::Converted(_))
     }
 
     pub fn get(&self, key: &str) -> Option<&Value> {
@@ -325,9 +370,24 @@ impl Gguf {
         if start.checked_add(len).is_none_or(|e| e > t.n_bytes) {
             return Err(bad(format!("read [{start}, +{len}) outside tensor {} of {} bytes", t.name, t.n_bytes)));
         }
-        let mut buf = vec![0u8; len as usize];
-        self.file.read_exact_at(&mut buf, self.data_offset + t.offset + start)?;
-        Ok(buf)
+        match &self.source {
+            Source::File(f) => {
+                let mut buf = vec![0u8; len as usize];
+                f.read_exact_at(&mut buf, self.data_offset + t.offset + start)?;
+                Ok(buf)
+            }
+            Source::Converted(read) => {
+                let mut all = read(t)?;
+                if all.len() as u64 != t.n_bytes {
+                    return Err(bad(format!("tensor {}: converter produced {} bytes, expected {}", t.name, all.len(), t.n_bytes)));
+                }
+                if start == 0 && len == t.n_bytes {
+                    return Ok(all);
+                }
+                all.truncate((start + len) as usize);
+                Ok(all.split_off(start as usize))
+            }
+        }
     }
 
     pub fn read_tensor(&self, t: &TensorInfo) -> Result<Vec<u8>> {
@@ -354,10 +414,27 @@ impl Gguf {
     /// Bytes in the data section not covered by any tensor (alignment padding), and the
     /// data-section length. A large gap means a type layout in `astral-quant` is wrong.
     pub fn coverage(&self) -> (u64, u64) {
+        if self.is_converted() {
+            let used: u64 = self.tensors.iter().map(|t| t.n_bytes).sum();
+            return (0, used);
+        }
         let data_len = self.file_len - self.data_offset;
         let used: u64 = self.tensors.iter().map(|t| t.n_bytes).sum();
         (data_len.saturating_sub(used), data_len)
     }
+}
+
+/// Opens model weights: a `.gguf` file, or a safetensors checkpoint directory (converted to
+/// the GGUF tensor layout as it is read).
+pub fn open_model(path: impl AsRef<Path>) -> Result<Gguf> {
+    let path = path.as_ref();
+    if path.is_dir() {
+        if inkling_checkpoint::is_inkling_checkpoint(path) {
+            return inkling_checkpoint::open(path);
+        }
+        return Err(bad(format!("{}: not a supported checkpoint (no config.json with a supported model_type)", path.display())));
+    }
+    Gguf::open(path)
 }
 
 #[cfg(test)]

@@ -4,19 +4,10 @@ Each architecture in Astral is implemented natively, kernel by kernel, and verif
 
 | Model | Architecture | Weights | Server | Speculative decoding | Notes |
 |---|---|---|---|---|---|
-| Inkling 2 Mini | `inkling2_loop` (looped MoE, attention residuals, short convolutions) | GGUF (`UD-Q4_K_XL`: Q8_0, NVFP4, BF16, F32) | ✅ | ✅ DSpark draft (`mtp.safetensors`) | Verified layer by layer against llama.cpp |
-| Qwen3.8-27B | Hybrid gated delta-net + attention | MXFP4 safetensors | CLI only | — | Greedy output matches vLLM |
+| Inkling 2 Mini | `inkling2_loop` (looped MoE, attention residuals, short convolutions) | Native safetensors checkpoint, or GGUF | ✅ | ✅ DSpark draft (`mtp.safetensors`) | Verified layer by layer against llama.cpp |
+| Qwen3.8-27B | Hybrid gated delta-net + attention | Native safetensors checkpoint | CLI only | — | Greedy output matches vLLM |
 
 Support for more models is coming soon.
-
-## Weight formats
-
-| Format | Decode | Prefill |
-|---|---|---|
-| Q8_0 | dp4a GEMV; int8 tensor-core GEMV for 2–8 tokens | Tensor-core GEMM |
-| NVFP4 | Shared-memory GEMV; grouped GEMV for MoE | wgmma GEMM (Hopper), mma.sync GEMM |
-| MXFP4 | Native-scale GEMV | Tensor-core GEMM |
-| BF16 / F32 | Row-block GEMV | — |
 
 ## Inputs
 

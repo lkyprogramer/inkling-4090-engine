@@ -4,15 +4,14 @@ This guide serves Inkling 2 Mini with its DSpark draft and sends requests to it.
 
 ## 1. Get the model files
 
-Astral runs Inkling 2 Mini from two inputs:
+Astral runs Inkling 2 Mini from its native checkpoint directory: the safetensors weights, the tokenizer (`tokenizer.json`), the configuration (`config.json`, with `mtp_config`) and the DSpark draft (`mtp.safetensors`).
 
-- the GGUF weights, for example `Inkling-2-Mini-UD-Q4_K_XL.gguf`;
-- the native checkpoint directory, for its tokenizer (`tokenizer.json`), configuration (`config.json`, with `mtp_config`) and DSpark draft (`mtp.safetensors`).
+A GGUF file of the model works too: pass it as the model and the checkpoint directory with `--checkpoint`, for the tokenizer and the draft.
 
 ## 2. Start the server
 
 ```bash
-./target/release/astral serve Inkling-2-Mini-UD-Q4_K_XL.gguf --checkpoint Inkling-2-Mini/
+./target/release/astral serve Inkling-2-Mini/
 ```
 
 Loading takes about half a minute: weights, draft, and CUDA graph capture. The server is ready when it prints:
@@ -54,8 +53,8 @@ The model's thinking is returned separately, in `reasoning_content`. More exampl
 The CLI can also generate from token ids without a server:
 
 ```bash
-./target/release/astral generate Inkling-2-Mini-UD-Q4_K_XL.gguf 64 <token ids...>
-./target/release/astral spec-generate Inkling-2-Mini-UD-Q4_K_XL.gguf Inkling-2-Mini/ 6 512 @prompt.ids
+./target/release/astral generate Inkling-2-Mini/ 64 <token ids...>
+./target/release/astral spec-generate Inkling-2-Mini/ Inkling-2-Mini/ 6 512 @prompt.ids
 ```
 
 `spec-generate` also runs plain decoding afterwards and reports how closely the two outputs agree.
