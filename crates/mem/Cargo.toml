@@ -1,0 +1,11 @@
+[package]
+name = "astral-mem"
+description = "Astral: byte-budget arbiter, slab pools and the VMM-backed GPU arena."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+astral-core.workspace = true
+astral-gpu.workspace = true

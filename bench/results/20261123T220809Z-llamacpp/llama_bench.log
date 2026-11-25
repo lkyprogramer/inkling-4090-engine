@@ -1,0 +1,2 @@
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 40441 MiB):
+  Device 0: NVIDIA A100-PCIE-40GB, compute capability 8.0, VMM: yes, VRAM: 40441 MiB

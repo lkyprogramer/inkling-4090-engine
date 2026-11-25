@@ -1,0 +1,2 @@
+name, driver_version, clocks.current.sm [MHz], clocks.current.memory [MHz], clocks.max.sm [MHz], power.draw [W], power.limit [W], temperature.gpu, pstate
+NVIDIA A100-PCIE-40GB, 580.105.08, 1275 MHz, 1215 MHz, 1410 MHz, 38.93 W, 250.00 W, 28, P0

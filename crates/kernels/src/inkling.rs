@@ -1,0 +1,1305 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2026 Synthetic Minds LTD
+//! Typed launchers for `cu/inkling.cu`: the Inkling 2 Mini decode operations. Every launcher
+//! checks buffer sizes before launching; device-side indices (token, position) are clamped by
+//! the kernels, so callers never need `unsafe`.
+
+use crate::ops::{GemvMatrix, GemvType, QAct};
+use crate::KernelRegistry;
+use astral_core::{AstralError, Result};
+use astral_gpu::{param, Dev, DevMut, DevicePtr, Function, LaunchConfig, Stream};
+
+/// Maximum attention-residual states mixed in one call (`MAX_DEPTH` in inkling.cu).
+pub const MAX_DEPTH: usize = 8;
+/// Maximum context the decode attention kernel handles (`MAX_CTX` in inkling.cu).
+pub const MAX_CTX: u32 = 8192;
+/// Positions per split of the split-K attention (`ATT_CHUNK` in inkling.cu).
+pub const ATT_CHUNK: u32 = 64;
+
+/// Most work items [`InklingOps::moe_group_q`] can produce for `p` picks over `n_expert`
+/// experts (each used expert, plus one per extra 8 picks of an expert).
+pub fn moe_items_bound(p: u32, n_expert: u32) -> u32 {
+    p.min(n_expert + p.div_ceil(crate::ops::QITEM_ROWS as u32))
+}
+
+/// Workspace floats [`InklingOps::attn_decode_split`] needs.
+pub fn attn_workspace(ntok: u32, heads: u32, head_dim: u32, max_splits: u32) -> usize {
+    ntok as usize * (heads * max_splits * (head_dim + 2)) as usize
+}
+
+fn invalid(m: String) -> AstralError {
+    AstralError::Invalid(m)
+}
+
+fn need(what: &str, have: usize, want: usize) -> Result<()> {
+    if have < want {
+        return Err(invalid(format!("{what}: buffer has {have} elements, need {want}")));
+    }
+    Ok(())
+}
+
+fn elementwise(n: u32) -> LaunchConfig {
+    LaunchConfig { grid: (n.div_ceil(256).clamp(1, 1024), 1, 1), block: (256, 1, 1), shared_mem_bytes: 0 }
+}
+
+/// `struct DepthIdx { unsigned v[MAX_DEPTH]; }` passed by value.
+#[repr(C)]
+struct DepthIdx {
+    v: [u32; MAX_DEPTH],
+}
+
+pub struct InklingOps {
+    embed: Function,
+    clip: Function,
+    tau: Function,
+    mix: Function,
+    concat_rms2: Function,
+    control: Function,
+    conv: Function,
+    kv_append: Function,
+    attn: Function,
+    router: Function,
+    situ: Function,
+    combine: Function,
+    add: Function,
+    mul_sigmoid: Function,
+    softcap: Function,
+    argmax: Function,
+    rms_q8: Function,
+    attn_prep: Function,
+    ctrl_down: Function,
+    ctrl_combine: Function,
+    gate_q8: Function,
+    situ_q8: Function,
+    conv_residual: Function,
+    conv_seq: Function,
+    conv_par: Function,
+    conv_res_par: Function,
+    conv_state: Function,
+    moe_combine_t: Function,
+    rms2: Function,
+    sgemm_tn: Function,
+    ctrl_apply: Function,
+    attn_prefill: Function,
+    moe_group: Function,
+    moe_group_q: Function,
+    attn_split: Function,
+    attn_merge: Function,
+    attn_split1: Function,
+    attn_merge_q8: Function,
+    mix_rms_q8: Function,
+    router_fused: Function,
+    ctrl_down3: Function,
+    ctrl_combine3: Function,
+    rms_q8_3: Function,
+}
+
+/// Everything [`InklingOps::attn_prep`] reads and writes for one layer and token.
+pub struct AttnPrep<'a> {
+    pub q: &'a mut dyn DevMut<f32>,
+    pub r: &'a mut dyn DevMut<f32>,
+    pub k: &'a mut dyn DevMut<f32>,
+    pub v: &'a mut dyn DevMut<f32>,
+    pub q_scale: &'a dyn Dev<f32>,
+    pub r_scale: &'a dyn Dev<f32>,
+    /// This slot's conv state from channel 0 (K at 0, V at `width`), at least `6 * width`.
+    pub conv_kv: &'a mut dyn DevMut<f32>,
+    pub k_conv: &'a dyn Dev<f32>,
+    pub v_conv: &'a dyn Dev<f32>,
+    /// Dynamic taps (`[dyn_heads * 4]` each) on full-attention layers.
+    pub kdyn: Option<&'a dyn Dev<f32>>,
+    pub vdyn: Option<&'a dyn Dev<f32>>,
+    pub dyn_heads: u32,
+    /// Tokens (prefill) and whether the K/V convs run here (decode) or ran in `conv_seq`.
+    pub ntok: u32,
+    pub conv: bool,
+    pub kc: &'a mut dyn DevMut<u16>,
+    pub vc: &'a mut dyn DevMut<u16>,
+    pub pos: &'a dyn Dev<i32>,
+    pub heads: u32,
+    pub kv_heads: u32,
+    pub head_dim: u32,
+    pub n_rel: u32,
+    pub thr_qk: f32,
+    pub thr_rel: f32,
+    pub eps: f32,
+    /// Full-attention layer: apply the log-length scale to Q and R.
+    pub global: bool,
+    pub log_floor: f32,
+    pub log_alpha: f32,
+    pub capacity: u32,
+}
+
+/// Attention geometry of one layer.
+#[derive(Debug, Clone, Copy)]
+pub struct AttnShape {
+    pub heads: u32,
+    pub kv_heads: u32,
+    pub head_dim: u32,
+    pub n_rel: u32,
+    /// Relative-bias table rows (distance >= extent uses a zero row).
+    pub extent: u32,
+    /// Sliding window (0 = full attention).
+    pub window: u32,
+    /// KV cache capacity in positions.
+    pub capacity: u32,
+}
+
+impl InklingOps {
+    pub fn new(reg: &KernelRegistry) -> Result<Self> {
+        let f = |n: &str| reg.function("inkling", n);
+        Ok(Self {
+            embed: f("astral_ink_embed_q8_0")?,
+            clip: f("astral_ink_clip_heads")?,
+            tau: f("astral_ink_scale_tau")?,
+            mix: f("astral_ink_mix")?,
+            concat_rms2: f("astral_ink_concat_rms2")?,
+            control: f("astral_ink_control_combine")?,
+            conv: f("astral_ink_conv_step")?,
+            kv_append: f("astral_ink_kv_append")?,
+            attn: f("astral_ink_attn_decode")?,
+            router: f("astral_ink_router_topk")?,
+            situ: f("astral_ink_situ")?,
+            combine: f("astral_ink_moe_combine")?,
+            add: f("astral_ink_add")?,
+            mul_sigmoid: f("astral_ink_mul_sigmoid")?,
+            softcap: f("astral_ink_softcap")?,
+            argmax: f("astral_ink_argmax")?,
+            rms_q8: f("astral_ink_rms_q8")?,
+            attn_prep: f("astral_ink_attn_prep")?,
+            ctrl_down: f("astral_ink_ctrl_down")?,
+            ctrl_combine: f("astral_ink_ctrl_combine")?,
+            gate_q8: f("astral_ink_gate_q8")?,
+            situ_q8: f("astral_ink_situ_q8")?,
+            conv_residual: f("astral_ink_conv_residual")?,
+            conv_seq: f("astral_ink_conv_seq")?,
+            conv_par: f("astral_ink_conv_par")?,
+            conv_res_par: f("astral_ink_conv_res_par")?,
+            conv_state: f("astral_ink_conv_state")?,
+            moe_combine_t: f("astral_ink_moe_combine_t")?,
+            rms2: f("astral_ink_rms2")?,
+            sgemm_tn: f("astral_ink_sgemm_tn")?,
+            ctrl_apply: f("astral_ink_ctrl_apply")?,
+            attn_prefill: f("astral_ink_attn_prefill")?,
+            moe_group: f("astral_ink_moe_group")?,
+            moe_group_q: f("astral_ink_moe_group_q")?,
+            attn_split: f("astral_ink_attn_split")?,
+            attn_merge: f("astral_ink_attn_merge")?,
+            attn_split1: f("astral_ink_attn_split1")?,
+            attn_merge_q8: f("astral_ink_attn_merge_q8")?,
+            mix_rms_q8: f("astral_ink_mix_rms_q8")?,
+            router_fused: f("astral_ink_router_fused")?,
+            ctrl_down3: f("astral_ink_ctrl_down3")?,
+            ctrl_combine3: f("astral_ink_ctrl_combine3")?,
+            rms_q8_3: f("astral_ink_rms_q8_3")?,
+        })
+    }
+
+    fn go(f: &Function, stream: &Stream, cfg: LaunchConfig, params: &mut [*mut std::ffi::c_void]) -> Result<()> {
+        // SAFETY: every caller builds `params` to match the kernel's C signature in inkling.cu
+        // and checks buffer sizes first; device-side indices are clamped by the kernels.
+        unsafe { f.launch(cfg, stream, params) }
+    }
+    /// `out[t] = dequant(row token[t])` of a Q8_0 embedding table, for `ntok` tokens.
+    pub fn embed(&self, s: &Stream, table: &GemvMatrix, token: &impl Dev<i32>, out: &mut impl DevMut<f32>, ntok: u32) -> Result<()> {
+        if table.ty != crate::ops::GemvType::Q8_0 || table.n_mats != 1 || ntok == 0 {
+            return Err(invalid("embed: table must be a single Q8_0 matrix".into()));
+        }
+        need("embed token", token.dlen(), ntok as usize)?;
+        need("embed out", out.dlen(), (table.k * ntok) as usize)?;
+        let (mut q, mut d, mut t, mut o, mut dim, mut rows) = (table.qs.device_ptr(), table.aux.device_ptr(), token.dptr(), out.dptr(), table.k, table.n);
+        let mut p = [param(&mut q), param(&mut d), param(&mut t), param(&mut o), param(&mut dim), param(&mut rows)];
+        Self::go(&self.embed, s, LaunchConfig { grid: (ntok, 1, 1), block: (256, 1, 1), shared_mem_bytes: 0 }, &mut p)
+    }
+
+    /// Per-head L2 clip with optional per-channel scale (`[heads * hd]`).
+    pub fn clip_heads(&self, s: &Stream, x: &mut impl DevMut<f32>, scale: Option<&impl Dev<f32>>, heads: u32, hd: u32, thr: f32) -> Result<()> {
+        let n = (heads * hd) as usize;
+        need("clip x", x.dlen(), n)?;
+        if let Some(sc) = scale {
+            need("clip scale", sc.dlen(), n)?;
+        }
+        let (mut px, mut ps, mut h, mut d, mut t) = (x.dptr(), scale.map_or(0, |b| b.dptr()), heads, hd, thr);
+        let mut p = [param(&mut px), param(&mut ps), param(&mut h), param(&mut d), param(&mut t)];
+        Self::go(&self.clip, s, LaunchConfig { grid: (heads.div_ceil(8), 1, 1), block: (256, 1, 1), shared_mem_bytes: 0 }, &mut p)
+    }
+
+    /// `x *= 1 + alpha * log(max(1, (pos + 1) / floor))`.
+    pub fn scale_tau(&self, s: &Stream, x: &mut impl DevMut<f32>, n: u32, pos: &impl Dev<i32>, floor: f32, alpha: f32) -> Result<()> {
+        need("tau x", x.dlen(), n as usize)?;
+        need("tau pos", pos.dlen(), 1)?;
+        let (mut px, mut nn, mut pp, mut fl, mut al) = (x.dptr(), n, pos.dptr(), floor, alpha);
+        let mut p = [param(&mut px), param(&mut nn), param(&mut pp), param(&mut fl), param(&mut al)];
+        Self::go(&self.tau, s, elementwise(n), &mut p)
+    }
+    /// Depth mix for `ntok` tokens: states = bank rows `idx` (row r of token t at
+    /// `r * row_stride + t * dim`) plus `cur[t]`, `nq` queries (rows of `query`); out `[t][nq][dim]`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn mix(
+        &self,
+        s: &Stream,
+        bank: &impl Dev<f32>,
+        idx: &[u32],
+        row_stride: usize,
+        cur: &impl Dev<f32>,
+        query: &impl Dev<f32>,
+        nq: u32,
+        out: &mut impl DevMut<f32>,
+        dim: u32,
+        ntok: u32,
+    ) -> Result<()> {
+        if idx.len() >= MAX_DEPTH {
+            return Err(invalid(format!("mix: {} states exceed the kernel limit {}", idx.len() + 1, MAX_DEPTH)));
+        }
+        let (d, nt) = (dim as usize, ntok as usize);
+        if !dim.is_multiple_of(4) || ntok == 0 || nq == 0 {
+            return Err(invalid(format!("mix: dim {dim} must be a multiple of 4, tokens and queries > 0")));
+        }
+        if idx.iter().any(|&i| i as usize * row_stride + nt * d > bank.dlen()) {
+            return Err(invalid("mix: state index outside the bank".into()));
+        }
+        need("mix cur", cur.dlen(), nt * d)?;
+        need("mix query", query.dlen(), nq as usize * d)?;
+        need("mix out", out.dlen(), nt * nq as usize * d)?;
+        let mut di = DepthIdx { v: [0; MAX_DEPTH] };
+        di.v[..idx.len()].copy_from_slice(idx);
+        let (mut pb, mut depth, mut rs, mut pc, mut pq, mut po, mut dm) = (bank.dptr(), idx.len() as u32, row_stride as u32, cur.dptr(), query.dptr(), out.dptr(), dim);
+        let mut p = [param(&mut pb), param(&mut di), param(&mut depth), param(&mut rs), param(&mut pc), param(&mut pq), param(&mut po), param(&mut dm)];
+        let block = (dim / 4).next_multiple_of(32).clamp(32, 1024);
+        Self::go(&self.mix, s, LaunchConfig { grid: (nq, ntok, 1), block: (block, 1, 1), shared_mem_bytes: 0 }, &mut p)
+    }
+
+    /// [`InklingOps::mix`] fused with the RMSNorm + quantisation of each query's mixed row:
+    /// `outs[j] = (weight, normalised row y [ntok][dim] (optional), activations)` for the `nq =
+    /// outs.len()` queries. `out` (the mixed rows, `[t][nq][dim]`) is optional. Needs
+    /// `dim % 128 == 0` and `dim <= 4096`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn mix_rms_q8(
+        &self,
+        s: &Stream,
+        bank: &impl Dev<f32>,
+        idx: &[u32],
+        row_stride: usize,
+        cur: &impl Dev<f32>,
+        query: &impl Dev<f32>,
+        out: Option<&mut dyn DevMut<f32>>,
+        dim: u32,
+        ntok: u32,
+        outs: &mut [(&dyn Dev<f32>, Option<&mut dyn DevMut<f32>>, &mut QAct)],
+        eps: f32,
+    ) -> Result<()> {
+        let nq = outs.len();
+        if idx.len() >= MAX_DEPTH || nq == 0 || nq > 3 || !dim.is_multiple_of(128) || dim > 4096 || ntok == 0 {
+            return Err(invalid(format!("mix_rms_q8: {} states, {nq} queries, dim {dim}", idx.len() + 1)));
+        }
+        let (d, nt) = (dim as usize, ntok as usize);
+        if idx.iter().any(|&i| i as usize * row_stride + nt * d > bank.dlen()) {
+            return Err(invalid("mix_rms_q8: state index outside the bank".into()));
+        }
+        need("mix_rms_q8 cur", cur.dlen(), nt * d)?;
+        need("mix_rms_q8 query", query.dlen(), nq * d)?;
+        let po = match out {
+            Some(o) => {
+                need("mix_rms_q8 out", o.dlen(), nt * nq * d)?;
+                o.dptr()
+            }
+            None => 0,
+        };
+        #[repr(C)]
+        struct MixRmsOut {
+            w: [DevicePtr; 3],
+            y: [DevicePtr; 3],
+            xq: [DevicePtr; 3],
+            xd: [DevicePtr; 3],
+            xh: [DevicePtr; 3],
+        }
+        let mut mo = MixRmsOut { w: [0; 3], y: [0; 3], xq: [0; 3], xd: [0; 3], xh: [0; 3] };
+        for (j, (w, y, qa)) in outs.iter_mut().enumerate() {
+            need("mix_rms_q8 w", w.dlen(), d)?;
+            if qa.k != dim {
+                return Err(invalid(format!("mix_rms_q8: activations k {} != dim {dim}", qa.k)));
+            }
+            mo.w[j] = w.dptr();
+            if let Some(y) = y {
+                need("mix_rms_q8 y", y.dlen(), nt * d)?;
+                mo.y[j] = y.dptr();
+            }
+            let (q, dd, h) = qa.planes_for(ntok)?;
+            mo.xq[j] = q;
+            mo.xd[j] = dd;
+            mo.xh[j] = h;
+        }
+        let mut di = DepthIdx { v: [0; MAX_DEPTH] };
+        di.v[..idx.len()].copy_from_slice(idx);
+        let (mut pb, mut depth, mut rs, mut pc, mut pq, mut po, mut dm, mut e) = (bank.dptr(), idx.len() as u32, row_stride as u32, cur.dptr(), query.dptr(), po, dim, eps);
+        let mut p = [param(&mut pb), param(&mut di), param(&mut depth), param(&mut rs), param(&mut pc), param(&mut pq), param(&mut po), param(&mut dm), param(&mut mo), param(&mut e)];
+        Self::go(&self.mix_rms_q8, s, LaunchConfig { grid: (nq as u32, ntok, 1), block: (dim / 4, 1, 1), shared_mem_bytes: 0 }, &mut p)
+    }
+
+    /// `out[..2*dim] = concat(rms(a), rms(b))`.
+    pub fn concat_rms2(&self, s: &Stream, a: &impl Dev<f32>, b: &impl Dev<f32>, out: &mut impl DevMut<f32>, dim: u32) -> Result<()> {
+        need("concat a", a.dlen(), dim as usize)?;
+        need("concat b", b.dlen(), dim as usize)?;
+        need("concat out", out.dlen(), 2 * dim as usize)?;
+        let (mut pa, mut pb, mut po, mut d) = (a.dptr(), b.dptr(), out.dptr(), dim);
+        let mut p = [param(&mut pa), param(&mut pb), param(&mut po), param(&mut d)];
+        Self::go(&self.concat_rms2, s, LaunchConfig { grid: (1, 1, 1), block: (256, 1, 1), shared_mem_bytes: 0 }, &mut p)
+    }
+
+    /// `out = cur - tanh(forget) * cur + tanh(gain) * msg`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn control_combine(&self, s: &Stream, cur: &impl Dev<f32>, msg: &impl Dev<f32>, gain: &impl Dev<f32>, forget: &impl Dev<f32>, out: &mut impl DevMut<f32>, dim: u32) -> Result<()> {
+        for (w, b) in [("cur", cur.dlen()), ("msg", msg.dlen()), ("gain", gain.dlen()), ("forget", forget.dlen()), ("out", out.dlen())] {
+            need(w, b, dim as usize)?;
+        }
+        let (mut a, mut b, mut c, mut d, mut o, mut n) = (cur.dptr(), msg.dptr(), gain.dptr(), forget.dptr(), out.dptr(), dim);
+        let mut p = [param(&mut a), param(&mut b), param(&mut c), param(&mut d), param(&mut o), param(&mut n)];
+        Self::go(&self.control, s, elementwise(dim), &mut p)
+    }
+
+    /// In-place 4-tap causal conv with residual over `channels`; advances `state` (`3 * channels`).
+    /// `dyn_taps`: optional `[heads * 4]` input-dependent taps.
+    #[allow(clippy::too_many_arguments)]
+    pub fn conv_step(&self, s: &Stream, x: &mut impl DevMut<f32>, state: &mut impl DevMut<f32>, weight: &impl Dev<f32>, dyn_taps: Option<&impl Dev<f32>>, channels: u32, heads: u32) -> Result<()> {
+        let c = channels as usize;
+        need("conv x", x.dlen(), c)?;
+        need("conv state", state.dlen(), 3 * c)?;
+        need("conv weight", weight.dlen(), 4 * c)?;
+        if let Some(t) = dyn_taps {
+            if heads == 0 || !channels.is_multiple_of(heads) {
+                return Err(invalid(format!("conv: {channels} channels not divisible by {heads} heads")));
+            }
+            need("conv taps", t.dlen(), 4 * heads as usize)?;
+        }
+        let (mut px, mut ps, mut pw, mut pd, mut ch, mut hh) = (x.dptr(), state.dptr(), weight.dptr(), dyn_taps.map_or(0, |b| b.dptr()), channels, heads);
+        let mut p = [param(&mut px), param(&mut ps), param(&mut pw), param(&mut pd), param(&mut ch), param(&mut hh)];
+        Self::go(&self.conv, s, elementwise(channels), &mut p)
+    }
+
+    /// Store this token's K and V (`[width]` f32) as f16 at cache position `pos`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn kv_append(&self, s: &Stream, k: &impl Dev<f32>, v: &impl Dev<f32>, kc: &mut impl DevMut<u16>, vc: &mut impl DevMut<u16>, pos: &impl Dev<i32>, width: u32, capacity: u32) -> Result<()> {
+        need("kv k", k.dlen(), width as usize)?;
+        need("kv v", v.dlen(), width as usize)?;
+        need("kv k cache", kc.dlen(), (width * capacity) as usize)?;
+        need("kv v cache", vc.dlen(), (width * capacity) as usize)?;
+        need("kv pos", pos.dlen(), 1)?;
+        let (mut a, mut b, mut c, mut d, mut e, mut w, mut cap) = (k.dptr(), v.dptr(), kc.dptr(), vc.dptr(), pos.dptr(), width, capacity.max(1));
+        let mut p = [param(&mut a), param(&mut b), param(&mut c), param(&mut d), param(&mut e), param(&mut w), param(&mut cap)];
+        Self::go(&self.kv_append, s, LaunchConfig { grid: (1, 1, 1), block: (256, 1, 1), shared_mem_bytes: 0 }, &mut p)
+    }
+
+    /// One-token attention with relative-position bias and sinks (see inkling.cu).
+    #[allow(clippy::too_many_arguments)]
+    pub fn attn_decode(
+        &self,
+        s: &Stream,
+        q: &impl Dev<f32>,
+        r: &impl Dev<f32>,
+        sink: &impl Dev<f32>,
+        kc: &impl Dev<u16>,
+        vc: &impl Dev<u16>,
+        rel_bias: &impl Dev<f32>,
+        out: &mut impl DevMut<f32>,
+        pos: &impl Dev<i32>,
+        a: AttnShape,
+    ) -> Result<()> {
+        if a.kv_heads == 0 || !a.heads.is_multiple_of(a.kv_heads) || a.n_rel > 64 || a.capacity == 0 || a.capacity > MAX_CTX {
+            return Err(invalid(format!("attn: unsupported shape {a:?} (n_rel <= 64, capacity <= {MAX_CTX})")));
+        }
+        let width = (a.kv_heads * a.head_dim) as usize;
+        need("attn q", q.dlen(), (a.heads * a.head_dim) as usize)?;
+        need("attn r", r.dlen(), (a.heads * a.n_rel) as usize)?;
+        need("attn sink", sink.dlen(), a.heads as usize)?;
+        need("attn k cache", kc.dlen(), width * a.capacity as usize)?;
+        need("attn v cache", vc.dlen(), width * a.capacity as usize)?;
+        need("attn rel bias", rel_bias.dlen(), (a.extent * a.n_rel) as usize)?;
+        need("attn out", out.dlen(), (a.heads * a.head_dim) as usize)?;
+        need("attn pos", pos.dlen(), 1)?;
+        let (mut pq, mut pr, mut ps, mut pk, mut pv, mut pb, mut po, mut pp): (DevicePtr, DevicePtr, DevicePtr, DevicePtr, DevicePtr, DevicePtr, DevicePtr, DevicePtr) =
+            (q.dptr(), r.dptr(), sink.dptr(), kc.dptr(), vc.dptr(), rel_bias.dptr(), out.dptr(), pos.dptr());
+        let (mut h, mut kh, mut hd, mut nr, mut ex, mut win) = (a.heads, a.kv_heads, a.head_dim, a.n_rel, a.extent, a.window);
+        let mut scale = 1.0f32 / (a.head_dim as f32).sqrt();
+        let mut cap = a.capacity;
+        let mut p = [
+            param(&mut pq),
+            param(&mut pr),
+            param(&mut ps),
+            param(&mut pk),
+            param(&mut pv),
+            param(&mut pb),
+            param(&mut po),
+            param(&mut pp),
+            param(&mut h),
+            param(&mut kh),
+            param(&mut hd),
+            param(&mut nr),
+            param(&mut ex),
+            param(&mut win),
+            param(&mut scale),
+            param(&mut cap),
+        ];
+        Self::go(&self.attn, s, LaunchConfig { grid: (a.heads, 1, 1), block: (128, 1, 1), shared_mem_bytes: 0 }, &mut p)
+    }
+    /// MoE router for `ntok` tokens: sigmoid, top-k by `prob + bias`, normalised weights times
+    /// `w_scale`. `logits [t][n_expert]`, `ids` / `weights [t][k]`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn router_topk(
+        &self,
+        s: &Stream,
+        logits: &impl Dev<f32>,
+        bias: Option<&impl Dev<f32>>,
+        ids: &mut impl DevMut<i32>,
+        weights: &mut impl DevMut<f32>,
+        n_expert: u32,
+        k: u32,
+        w_scale: f32,
+        ntok: u32,
+    ) -> Result<()> {
+        if n_expert > 256 || k == 0 || k > 32 || k > n_expert || ntok == 0 {
+            return Err(invalid(format!("router: need k <= 32, k <= n_expert <= 256 (got {k}, {n_expert})")));
+        }
+        need("router logits", logits.dlen(), (n_expert * ntok) as usize)?;
+        if let Some(b) = bias {
+            need("router bias", b.dlen(), n_expert as usize)?;
+        }
+        need("router ids", ids.dlen(), (k * ntok) as usize)?;
+        need("router weights", weights.dlen(), (k * ntok) as usize)?;
+        let (mut pl, mut pb, mut pi, mut pw, mut ne, mut kk, mut ws) = (logits.dptr(), bias.map_or(0, |b| b.dptr()), ids.dptr(), weights.dptr(), n_expert, k, w_scale);
+        let mut p = [param(&mut pl), param(&mut pb), param(&mut pi), param(&mut pw), param(&mut ne), param(&mut kk), param(&mut ws)];
+        Self::go(&self.router, s, LaunchConfig { grid: (ntok, 1, 1), block: (n_expert.next_multiple_of(32), 1, 1), shared_mem_bytes: 0 }, &mut p)
+    }
+
+    /// The router GEMV (an F32 `[n_expert, k]` matrix over `ntok` rows of `x`) fused with
+    /// [`InklingOps::router_topk`]. `counter` holds `ntok` zeros and is left zeroed.
+    #[allow(clippy::too_many_arguments)]
+    pub fn router_fused(
+        &self,
+        s: &Stream,
+        router: &GemvMatrix,
+        x: &dyn Dev<f32>,
+        logits: &mut dyn DevMut<f32>,
+        bias: Option<&dyn Dev<f32>>,
+        ids: &mut dyn DevMut<i32>,
+        weights: &mut dyn DevMut<f32>,
+        k: u32,
+        w_scale: f32,
+        ntok: u32,
+        counter: &mut dyn DevMut<u32>,
+    ) -> Result<()> {
+        let ne = router.n;
+        if router.ty != GemvType::F32 || router.n_mats != 1 || ne > 256 || k == 0 || k > 32 || k > ne || ntok == 0 || !router.k.is_multiple_of(4) {
+            return Err(invalid(format!("router_fused: {:?} n {ne} k {} top-{k}", router.ty, router.k)));
+        }
+        need("router x", x.dlen(), (router.k * ntok) as usize)?;
+        need("router logits", logits.dlen(), (ne * ntok) as usize)?;
+        if let Some(b) = bias {
+            need("router bias", b.dlen(), ne as usize)?;
+        }
+        need("router ids", ids.dlen(), (k * ntok) as usize)?;
+        need("router weights", weights.dlen(), (k * ntok) as usize)?;
+        need("router counter", counter.dlen(), ntok as usize)?;
+        let (mut pw, mut px, mut kk0, mut pl, mut pb, mut pi, mut pws) = (router.qs.device_ptr(), x.dptr(), router.k, logits.dptr(), bias.map_or(0, |b| b.dptr()), ids.dptr(), weights.dptr());
+        let (mut n, mut kk, mut ws, mut pc) = (ne, k, w_scale, counter.dptr());
+        let mut p = [param(&mut pw), param(&mut px), param(&mut kk0), param(&mut pl), param(&mut pb), param(&mut pi), param(&mut pws), param(&mut n), param(&mut kk), param(&mut ws), param(&mut pc)];
+        Self::go(&self.router_fused, s, LaunchConfig { grid: (ne, ntok, 1), block: (256, 1, 1), shared_mem_bytes: 0 }, &mut p)
+    }
+
+    /// SITU over `slots` fused gate_up rows (`2 * n_ff` each) into `act` (`n_ff` each).
+    pub fn situ(&self, s: &Stream, gu: &impl Dev<f32>, act: &mut impl DevMut<f32>, n_ff: u32, slots: u32, beta: f32, lb: f32) -> Result<()> {
+        need("situ gate_up", gu.dlen(), (2 * n_ff * slots) as usize)?;
+        need("situ act", act.dlen(), (n_ff * slots) as usize)?;
+        let (mut g, mut a, mut n, mut sl, mut b, mut l) = (gu.dptr(), act.dptr(), n_ff, slots, beta, lb);
+        let mut p = [param(&mut g), param(&mut a), param(&mut n), param(&mut sl), param(&mut b), param(&mut l)];
+        Self::go(&self.situ, s, elementwise(n_ff * slots), &mut p)
+    }
+
+    /// `out[c] = sum_s w[s] * y[s, c]`.
+    pub fn moe_combine(&self, s: &Stream, y: &impl Dev<f32>, w: &impl Dev<f32>, out: &mut impl DevMut<f32>, dim: u32, slots: u32) -> Result<()> {
+        need("combine y", y.dlen(), (dim * slots) as usize)?;
+        need("combine w", w.dlen(), slots as usize)?;
+        need("combine out", out.dlen(), dim as usize)?;
+        let (mut py, mut pw, mut po, mut d, mut sl) = (y.dptr(), w.dptr(), out.dptr(), dim, slots);
+        let mut p = [param(&mut py), param(&mut pw), param(&mut po), param(&mut d), param(&mut sl)];
+        Self::go(&self.combine, s, elementwise(dim), &mut p)
+    }
+
+    pub fn add(&self, s: &Stream, a: &impl Dev<f32>, b: &impl Dev<f32>, out: &mut impl DevMut<f32>, n: u32) -> Result<()> {
+        need("add a", a.dlen(), n as usize)?;
+        need("add b", b.dlen(), n as usize)?;
+        need("add out", out.dlen(), n as usize)?;
+        let (mut pa, mut pb, mut po, mut nn) = (a.dptr(), b.dptr(), out.dptr(), n);
+        let mut p = [param(&mut pa), param(&mut pb), param(&mut po), param(&mut nn)];
+        Self::go(&self.add, s, elementwise(n), &mut p)
+    }
+
+    /// `x *= sigmoid(g)`.
+    pub fn mul_sigmoid(&self, s: &Stream, x: &mut impl DevMut<f32>, g: &impl Dev<f32>, n: u32) -> Result<()> {
+        need("mul_sigmoid x", x.dlen(), n as usize)?;
+        need("mul_sigmoid g", g.dlen(), n as usize)?;
+        let (mut px, mut pg, mut nn) = (x.dptr(), g.dptr(), n);
+        let mut p = [param(&mut px), param(&mut pg), param(&mut nn)];
+        Self::go(&self.mul_sigmoid, s, elementwise(n), &mut p)
+    }
+
+    pub fn softcap(&self, s: &Stream, x: &mut impl DevMut<f32>, n: u32, cap: f32) -> Result<()> {
+        need("softcap", x.dlen(), n as usize)?;
+        let (mut px, mut nn, mut c) = (x.dptr(), n, cap);
+        let mut p = [param(&mut px), param(&mut nn), param(&mut c)];
+        Self::go(&self.softcap, s, elementwise(n), &mut p)
+    }
+
+    /// Greedy pick over the first `n` logits.
+    pub fn argmax(&self, s: &Stream, x: &impl Dev<f32>, n: u32, out: &mut impl DevMut<i32>) -> Result<()> {
+        need("argmax x", x.dlen(), n as usize)?;
+        need("argmax out", out.dlen(), 1)?;
+        let (mut px, mut nn, mut po) = (x.dptr(), n, out.dptr());
+        let mut p = [param(&mut px), param(&mut nn), param(&mut po)];
+        Self::go(&self.argmax, s, LaunchConfig { grid: (1, 1, 1), block: (1024, 1, 1), shared_mem_bytes: 0 }, &mut p)
+    }
+    /// For `ntok` rows (row t at `x[t * x_stride]`): `y = rms_norm(x) * w` (`y`, `w` optional,
+    /// `y` token-major) and `y` quantised into `qa` (`ntok` vectors).
+    #[allow(clippy::too_many_arguments)]
+    pub fn rms_q8(&self, s: &Stream, x: &dyn Dev<f32>, x_stride: usize, w: Option<&dyn Dev<f32>>, y: Option<&mut dyn DevMut<f32>>, qa: &mut QAct, ntok: u32, eps: f32) -> Result<()> {
+        let dim = qa.k;
+        if ntok == 0 {
+            return Err(invalid("rms_q8: no tokens".into()));
+        }
+        need("rms_q8 x", x.dlen(), (ntok as usize - 1) * x_stride + dim as usize)?;
+        if let Some(w) = w {
+            need("rms_q8 w", w.dlen(), dim as usize)?;
+        }
+        let py = match y {
+            Some(y) => {
+                need("rms_q8 y", y.dlen(), (dim * ntok) as usize)?;
+                y.dptr()
+            }
+            None => 0,
+        };
+        let (mut pq, mut pd, mut ph) = qa.planes_for(ntok)?;
+        let (mut px, mut xs, mut pw, mut py, mut d, mut e) = (x.dptr(), x_stride as u32, w.map_or(0, |w| w.dptr()), py, dim, eps);
+        let mut p = [param(&mut px), param(&mut xs), param(&mut pw), param(&mut py), param(&mut pq), param(&mut pd), param(&mut ph), param(&mut d), param(&mut e)];
+        let block = (dim / 4).next_multiple_of(32).clamp(32, 1024);
+        Self::go(&self.rms_q8, s, LaunchConfig { grid: (ntok, 1, 1), block: (block, 1, 1), shared_mem_bytes: 0 }, &mut p)
+    }
+    /// Q/R clips (+ log-length scale), K/V short convs (unless `a.conv` is false), K clip, V
+    /// norm and the KV append, for `a.ntok` tokens at positions `pos[0]..`.
+    pub fn attn_prep(&self, s: &Stream, a: AttnPrep) -> Result<()> {
+        let (h, kh, hd, nr, nt) = (a.heads as usize, a.kv_heads as usize, a.head_dim as usize, a.n_rel as usize, a.ntok as usize);
+        let width = kh * hd;
+        if hd > 256 || nr > 256 || kh == 0 || a.capacity == 0 || nt == 0 || (a.kdyn.is_some() != a.vdyn.is_some()) || (a.kdyn.is_some() && (!a.conv || nt != 1)) {
+            return Err(invalid(format!("attn_prep: unsupported shape hd {hd} n_rel {nr} kv_heads {kh} tokens {nt}")));
+        }
+        need("prep q", a.q.dlen(), nt * h * hd)?;
+        need("prep r", a.r.dlen(), nt * h * nr)?;
+        need("prep k", a.k.dlen(), nt * width)?;
+        need("prep v", a.v.dlen(), nt * width)?;
+        need("prep q scale", a.q_scale.dlen(), h * hd)?;
+        need("prep r scale", a.r_scale.dlen(), h * nr)?;
+        need("prep conv state", a.conv_kv.dlen(), 6 * width)?;
+        need("prep k conv", a.k_conv.dlen(), 4 * width)?;
+        need("prep v conv", a.v_conv.dlen(), 4 * width)?;
+        for t in [a.kdyn, a.vdyn].into_iter().flatten() {
+            if a.dyn_heads == 0 || !width.is_multiple_of(a.dyn_heads as usize) {
+                return Err(invalid(format!("attn_prep: {width} channels not divisible by {} tap heads", a.dyn_heads)));
+            }
+            need("prep taps", t.dlen(), 4 * a.dyn_heads as usize)?;
+        }
+        need("prep k cache", a.kc.dlen(), width * a.capacity as usize)?;
+        need("prep v cache", a.vc.dlen(), width * a.capacity as usize)?;
+        need("prep pos", a.pos.dlen(), 1)?;
+        let (mut pq, mut pr, mut pk, mut pv) = (a.q.dptr(), a.r.dptr(), a.k.dptr(), a.v.dptr());
+        let (mut qs, mut rs, mut cs, mut kw, mut vw) = (a.q_scale.dptr(), a.r_scale.dptr(), a.conv_kv.dptr(), a.k_conv.dptr(), a.v_conv.dptr());
+        let (mut kd, mut vd, mut dh) = (a.kdyn.map_or(0, |b| b.dptr()), a.vdyn.map_or(0, |b| b.dptr()), if a.kdyn.is_some() { a.dyn_heads } else { 0 });
+        let (mut kc, mut vc, mut pp) = (a.kc.dptr(), a.vc.dptr(), a.pos.dptr());
+        let (mut hh, mut khh, mut hdd, mut nrr) = (a.heads, a.kv_heads, a.head_dim, a.n_rel);
+        let (mut tq, mut tr, mut ep, mut gl, mut fl, mut al, mut cap) = (a.thr_qk, a.thr_rel, a.eps, a.global as u32, a.log_floor, a.log_alpha, a.capacity);
+        let mut dc = a.conv as u32;
+        let mut p = [
+            param(&mut pq),
+            param(&mut pr),
+            param(&mut pk),
+            param(&mut pv),
+            param(&mut qs),
+            param(&mut rs),
+            param(&mut cs),
+            param(&mut kw),
+            param(&mut vw),
+            param(&mut kd),
+            param(&mut vd),
+            param(&mut dh),
+            param(&mut kc),
+            param(&mut vc),
+            param(&mut pp),
+            param(&mut hh),
+            param(&mut khh),
+            param(&mut hdd),
+            param(&mut nrr),
+            param(&mut tq),
+            param(&mut tr),
+            param(&mut ep),
+            param(&mut gl),
+            param(&mut fl),
+            param(&mut al),
+            param(&mut cap),
+            param(&mut dc),
+        ];
+        let jobs = 2 * (a.heads + a.kv_heads);
+        Self::go(&self.attn_prep, s, LaunchConfig { grid: (jobs, a.ntok, 1), block: (128, 1, 1), shared_mem_bytes: 0 }, &mut p)
+    }
+
+    /// In-place short conv over `ntok` consecutive tokens (row t at `x[t * x_stride]`), with
+    /// optional per-token dynamic taps `(taps, row stride, tap heads)`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn conv_seq(
+        &self,
+        s: &Stream,
+        x: &mut dyn DevMut<f32>,
+        x_stride: usize,
+        ntok: u32,
+        state: &mut dyn DevMut<f32>,
+        weight: &dyn Dev<f32>,
+        taps: Option<(&dyn Dev<f32>, usize, u32)>,
+        channels: u32,
+    ) -> Result<()> {
+        let c = channels as usize;
+        if ntok == 0 || x_stride < c {
+            return Err(invalid("conv_seq: need tokens > 0 and x_stride >= channels".into()));
+        }
+        need("conv_seq x", x.dlen(), (ntok as usize - 1) * x_stride + c)?;
+        need("conv_seq state", state.dlen(), 3 * c)?;
+        need("conv_seq weight", weight.dlen(), 4 * c)?;
+        let (mut pd, mut ds, mut dh) = (0, 0u32, 0u32);
+        if let Some((t, stride, heads)) = taps {
+            if heads == 0 || !channels.is_multiple_of(heads) || stride < 4 * heads as usize {
+                return Err(invalid(format!("conv_seq: {channels} channels / {heads} tap heads / stride {stride}")));
+            }
+            need("conv_seq taps", t.dlen(), (ntok as usize - 1) * stride + 4 * heads as usize)?;
+            (pd, ds, dh) = (t.dptr(), stride as u32, heads);
+        }
+        let (mut px, mut xs, mut nt, mut ps, mut pw, mut ch) = (x.dptr(), x_stride as u32, ntok, state.dptr(), weight.dptr(), channels);
+        let mut p = [param(&mut px), param(&mut xs), param(&mut nt), param(&mut ps), param(&mut pw), param(&mut pd), param(&mut ds), param(&mut dh), param(&mut ch)];
+        Self::go(&self.conv_seq, s, LaunchConfig { grid: (channels.div_ceil(128), 1, 1), block: (128, 1, 1), shared_mem_bytes: 0 }, &mut p)
+    }
+
+    fn f32_mat(m: &GemvMatrix, n: u32, k: u32, what: &str) -> Result<()> {
+        if m.ty != GemvType::F32 || m.n_mats != 1 || m.n != n || m.k != k {
+            return Err(invalid(format!("{what}: need one F32 [{n} x {k}] matrix, got {:?} [{} x {}] x{}", m.ty, m.n, m.k, m.n_mats)));
+        }
+        Ok(())
+    }
+    /// Loop controller part 1 for `ntok` tokens: `cd[t] = W_down concat(rms(x[t]), rms(msg[t]))`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn ctrl_down(&self, s: &Stream, wd: &GemvMatrix, x: &dyn Dev<f32>, x_stride: usize, msg: &dyn Dev<f32>, msg_stride: usize, cd: &mut dyn DevMut<f32>, dim: u32, ntok: u32) -> Result<()> {
+        Self::f32_mat(wd, wd.n, 2 * dim, "ctrl_down")?;
+        let (d, nt) = (dim as usize, ntok as usize);
+        if nt == 0 {
+            return Err(invalid("ctrl_down: no tokens".into()));
+        }
+        need("ctrl_down x", x.dlen(), (nt - 1) * x_stride + d)?;
+        need("ctrl_down msg", msg.dlen(), (nt - 1) * msg_stride + d)?;
+        need("ctrl_down out", cd.dlen(), nt * wd.n as usize)?;
+        let (mut pw, mut px, mut xs, mut pm, mut ms, mut po, mut dd) = (wd.qs.device_ptr(), x.dptr(), x_stride as u32, msg.dptr(), msg_stride as u32, cd.dptr(), dim);
+        let mut p = [param(&mut pw), param(&mut px), param(&mut xs), param(&mut pm), param(&mut ms), param(&mut po), param(&mut dd)];
+        Self::go(&self.ctrl_down, s, LaunchConfig { grid: (wd.n, ntok, 1), block: (256, 1, 1), shared_mem_bytes: 0 }, &mut p)
+    }
+    /// Both loop-controller parts for up to three independent jobs `(down, gain_forget, x, msg,
+    /// cd, out)` (a looped layer's Q, K, V inputs) in two launches. All share `x_stride`,
+    /// `msg_stride`, `dim` and the rank.
+    #[allow(clippy::too_many_arguments)]
+    pub fn ctrl_multi(
+        &self,
+        s: &Stream,
+        jobs: &mut [(&GemvMatrix, &GemvMatrix, &dyn Dev<f32>, &dyn Dev<f32>, &mut dyn DevMut<f32>, &mut dyn DevMut<f32>)],
+        x_stride: usize,
+        msg_stride: usize,
+        dim: u32,
+        ntok: u32,
+    ) -> Result<()> {
+        #[repr(C)]
+        struct Ctrl3 {
+            wd: [DevicePtr; 3],
+            wgf: [DevicePtr; 3],
+            x: [DevicePtr; 3],
+            msg: [DevicePtr; 3],
+            cd: [DevicePtr; 3],
+            out: [DevicePtr; 3],
+        }
+        let nj = jobs.len();
+        if nj == 0 || nj > 3 || ntok == 0 {
+            return Err(invalid(format!("ctrl_multi: {nj} jobs, {ntok} tokens")));
+        }
+        let (d, nt) = (dim as usize, ntok as usize);
+        let rank = jobs[0].0.n;
+        let mut c = Ctrl3 { wd: [0; 3], wgf: [0; 3], x: [0; 3], msg: [0; 3], cd: [0; 3], out: [0; 3] };
+        for (j, (wd, wgf, x, msg, cd, out)) in jobs.iter_mut().enumerate() {
+            Self::f32_mat(wd, rank, 2 * dim, "ctrl_multi down")?;
+            Self::f32_mat(wgf, 2 * dim, rank, "ctrl_multi gain_forget")?;
+            need("ctrl_multi x", x.dlen(), (nt - 1) * x_stride + d)?;
+            need("ctrl_multi msg", msg.dlen(), (nt - 1) * msg_stride + d)?;
+            need("ctrl_multi cd", cd.dlen(), nt * rank as usize)?;
+            need("ctrl_multi out", out.dlen(), nt * d)?;
+            c.wd[j] = wd.qs.device_ptr();
+            c.wgf[j] = wgf.qs.device_ptr();
+            c.x[j] = x.dptr();
+            c.msg[j] = msg.dptr();
+            c.cd[j] = cd.dptr();
+            c.out[j] = out.dptr();
+        }
+        let (mut xs, mut ms, mut dd) = (x_stride as u32, msg_stride as u32, dim);
+        let mut c2 = Ctrl3 { wd: c.wd, wgf: c.wgf, x: c.x, msg: c.msg, cd: c.cd, out: c.out };
+        let mut p = [param(&mut c), param(&mut xs), param(&mut ms), param(&mut dd)];
+        Self::go(&self.ctrl_down3, s, LaunchConfig { grid: (rank, ntok, nj as u32), block: (256, 1, 1), shared_mem_bytes: 0 }, &mut p)?;
+        let (mut xs2, mut ms2, mut dd2, mut r) = (x_stride as u32, msg_stride as u32, dim, rank);
+        let mut p2 = [param(&mut c2), param(&mut xs2), param(&mut ms2), param(&mut dd2), param(&mut r)];
+        Self::go(&self.ctrl_combine3, s, LaunchConfig { grid: (dim.div_ceil(8), ntok, nj as u32), block: (256, 1, 1), shared_mem_bytes: 0 }, &mut p2)
+    }
+
+    /// Up to three [`InklingOps::rms_q8`] jobs `(x, weight, y, activations)` in one launch (rows
+    /// of every `x` at `t * x_stride`, `dim = qa.k`).
+    pub fn rms_q8_multi(&self, s: &Stream, jobs: &mut [(&dyn Dev<f32>, &dyn Dev<f32>, Option<&mut dyn DevMut<f32>>, &mut QAct)], x_stride: usize, ntok: u32, eps: f32) -> Result<()> {
+        #[repr(C)]
+        struct Rms3 {
+            x: [DevicePtr; 3],
+            w: [DevicePtr; 3],
+            y: [DevicePtr; 3],
+            xq: [DevicePtr; 3],
+            xd: [DevicePtr; 3],
+            xh: [DevicePtr; 3],
+        }
+        let nj = jobs.len();
+        if nj == 0 || nj > 3 || ntok == 0 {
+            return Err(invalid(format!("rms_q8_multi: {nj} jobs, {ntok} tokens")));
+        }
+        let dim = jobs[0].3.k;
+        let mut r = Rms3 { x: [0; 3], w: [0; 3], y: [0; 3], xq: [0; 3], xd: [0; 3], xh: [0; 3] };
+        for (j, (x, w, y, qa)) in jobs.iter_mut().enumerate() {
+            if qa.k != dim {
+                return Err(invalid("rms_q8_multi: activation widths differ".into()));
+            }
+            need("rms_q8_multi x", x.dlen(), (ntok as usize - 1) * x_stride + dim as usize)?;
+            need("rms_q8_multi w", w.dlen(), dim as usize)?;
+            if let Some(y) = y {
+                need("rms_q8_multi y", y.dlen(), (dim * ntok) as usize)?;
+                r.y[j] = y.dptr();
+            }
+            let (q, dd, h) = qa.planes_for(ntok)?;
+            r.x[j] = x.dptr();
+            r.w[j] = w.dptr();
+            r.xq[j] = q;
+            r.xd[j] = dd;
+            r.xh[j] = h;
+        }
+        let (mut xs, mut d, mut e) = (x_stride as u32, dim, eps);
+        let mut p = [param(&mut r), param(&mut xs), param(&mut d), param(&mut e)];
+        let block = (dim / 4).next_multiple_of(32).clamp(32, 1024);
+        Self::go(&self.rms_q8_3, s, LaunchConfig { grid: (ntok, nj as u32, 1), block: (block, 1, 1), shared_mem_bytes: 0 }, &mut p)
+    }
+
+    /// Loop controller part 2 for `ntok` tokens: gain/forget from `cd[t]`, then the combine into
+    /// `out[t]` (token-major).
+    #[allow(clippy::too_many_arguments)]
+    pub fn ctrl_combine(
+        &self,
+        s: &Stream,
+        wgf: &GemvMatrix,
+        cd: &dyn Dev<f32>,
+        x: &dyn Dev<f32>,
+        x_stride: usize,
+        msg: &dyn Dev<f32>,
+        msg_stride: usize,
+        out: &mut dyn DevMut<f32>,
+        dim: u32,
+        ntok: u32,
+    ) -> Result<()> {
+        Self::f32_mat(wgf, 2 * dim, wgf.k, "ctrl_combine")?;
+        let (d, nt) = (dim as usize, ntok as usize);
+        if nt == 0 {
+            return Err(invalid("ctrl_combine: no tokens".into()));
+        }
+        need("ctrl_combine cd", cd.dlen(), nt * wgf.k as usize)?;
+        need("ctrl_combine x", x.dlen(), (nt - 1) * x_stride + d)?;
+        need("ctrl_combine msg", msg.dlen(), (nt - 1) * msg_stride + d)?;
+        need("ctrl_combine out", out.dlen(), nt * d)?;
+        let (mut pw, mut pc, mut px, mut xs, mut pm, mut ms, mut po, mut dd, mut r) =
+            (wgf.qs.device_ptr(), cd.dptr(), x.dptr(), x_stride as u32, msg.dptr(), msg_stride as u32, out.dptr(), dim, wgf.k);
+        let mut p = [param(&mut pw), param(&mut pc), param(&mut px), param(&mut xs), param(&mut pm), param(&mut ms), param(&mut po), param(&mut dd), param(&mut r)];
+        Self::go(&self.ctrl_combine, s, LaunchConfig { grid: (dim.div_ceil(8), ntok, 1), block: (256, 1, 1), shared_mem_bytes: 0 }, &mut p)
+    }
+    /// `x *= sigmoid(g)` for `ntok` rows of `qa.k`, then `x` quantised into `qa`.
+    pub fn gate_q8(&self, s: &Stream, x: &mut dyn DevMut<f32>, g: &dyn Dev<f32>, qa: &mut QAct, ntok: u32) -> Result<()> {
+        let n = qa.k * ntok;
+        need("gate_q8 x", x.dlen(), n as usize)?;
+        need("gate_q8 g", g.dlen(), n as usize)?;
+        let (mut pq, mut pd, mut ph) = qa.planes_for(ntok)?;
+        let (mut px, mut pg, mut nn) = (x.dptr(), g.dptr(), n);
+        let mut p = [param(&mut px), param(&mut pg), param(&mut pq), param(&mut pd), param(&mut ph), param(&mut nn)];
+        Self::go(&self.gate_q8, s, LaunchConfig { grid: ((n / 32).div_ceil(8), 1, 1), block: (256, 1, 1), shared_mem_bytes: 0 }, &mut p)
+    }
+
+    /// SITU over `slots` fused gate_up rows, quantised into `qa` (`qa.k == n_ff`).
+    pub fn situ_q8(&self, s: &Stream, gu: &dyn Dev<f32>, qa: &mut QAct, slots: u32, beta: f32, lb: f32) -> Result<()> {
+        let n_ff = qa.k;
+        need("situ_q8 gate_up", gu.dlen(), (2 * n_ff * slots) as usize)?;
+        let (mut pq, mut pd, mut ph) = qa.planes_for(slots)?;
+        let (mut pg, mut n, mut sl, mut b, mut l) = (gu.dptr(), n_ff, slots, beta, lb);
+        let mut p = [param(&mut pg), param(&mut pq), param(&mut pd), param(&mut ph), param(&mut n), param(&mut sl), param(&mut b), param(&mut l)];
+        Self::go(&self.situ_q8, s, LaunchConfig { grid: ((slots * n_ff / 32).div_ceil(8), 1, 1), block: (256, 1, 1), shared_mem_bytes: 0 }, &mut p)
+    }
+    /// Short conv of `x` (or of the MoE combine: `moe = (weights [t][slots], slots)`, `x [t][slot][c]`)
+    /// into the residual stream over `ntok` tokens: `bank_row = cur, cur = y` when `bank_row` is
+    /// given, else `cur += y`. All token-major.
+    #[allow(clippy::too_many_arguments)]
+    pub fn conv_residual(
+        &self,
+        s: &Stream,
+        x: &dyn Dev<f32>,
+        moe: Option<(&dyn Dev<f32>, u32)>,
+        ntok: u32,
+        state: &mut dyn DevMut<f32>,
+        weight: &dyn Dev<f32>,
+        cur: &mut dyn DevMut<f32>,
+        bank_row: Option<&mut dyn DevMut<f32>>,
+        channels: u32,
+    ) -> Result<()> {
+        let (c, nt) = (channels as usize, ntok as usize);
+        let slots = moe.map_or(1, |m| m.1);
+        if nt == 0 || slots == 0 {
+            return Err(invalid("conv_residual: no tokens".into()));
+        }
+        need("conv_residual x", x.dlen(), nt * c * slots as usize)?;
+        if let Some((w, _)) = moe {
+            need("conv_residual moe weights", w.dlen(), nt * slots as usize)?;
+        }
+        need("conv_residual state", state.dlen(), 3 * c)?;
+        need("conv_residual weight", weight.dlen(), 4 * c)?;
+        need("conv_residual cur", cur.dlen(), nt * c)?;
+        let pb = match bank_row {
+            Some(b) => {
+                need("conv_residual bank row", b.dlen(), nt * c)?;
+                b.dptr()
+            }
+            None => 0,
+        };
+        let (mut px, mut pm, mut sl, mut nn, mut ps, mut pw, mut pc, mut pb, mut ch) = (x.dptr(), moe.map_or(0, |m| m.0.dptr()), slots, ntok, state.dptr(), weight.dptr(), cur.dptr(), pb, channels);
+        let mut p = [param(&mut px), param(&mut pm), param(&mut sl), param(&mut nn), param(&mut ps), param(&mut pw), param(&mut pc), param(&mut pb), param(&mut ch)];
+        let cfg = if nt == 1 { elementwise(channels) } else { LaunchConfig { grid: (channels.div_ceil(128), 1, 1), block: (128, 1, 1), shared_mem_bytes: 0 } };
+        Self::go(&self.conv_residual, s, cfg, &mut p)
+    }
+    /// Split-K (flash-decode) attention for `ntok` causal queries at positions `pos[0]..`;
+    /// `head_dim` must be 128 and `n_rel <= 32`. `max_splits` must cover the longest query's
+    /// span (`ceil(span / ATT_CHUNK)`); `work` holds [`attn_workspace`]`(ntok, ..)` floats.
+    #[allow(clippy::too_many_arguments)]
+    pub fn attn_decode_split(
+        &self,
+        s: &Stream,
+        q: &impl Dev<f32>,
+        r: &impl Dev<f32>,
+        sink: &impl Dev<f32>,
+        kc: &impl Dev<u16>,
+        vc: &impl Dev<u16>,
+        rel_bias: &impl Dev<f32>,
+        work: &mut impl DevMut<f32>,
+        out: &mut impl DevMut<f32>,
+        pos: &impl Dev<i32>,
+        a: AttnShape,
+        ntok: u32,
+        max_splits: u32,
+        chunk_loop: bool,
+        gate: Option<(&dyn Dev<f32>, &mut QAct)>,
+    ) -> Result<()> {
+        if a.head_dim != 128 || a.n_rel > 32 || a.kv_heads == 0 || !a.heads.is_multiple_of(a.kv_heads) || a.capacity == 0 || a.capacity > MAX_CTX || ntok == 0 || max_splits == 0 {
+            return Err(invalid(format!("attn split: unsupported shape {a:?} (head_dim 128, n_rel <= 32, capacity <= {MAX_CTX})")));
+        }
+        let (width, nt) = ((a.kv_heads * a.head_dim) as usize, ntok as usize);
+        need("attn q", q.dlen(), nt * (a.heads * a.head_dim) as usize)?;
+        need("attn r", r.dlen(), nt * (a.heads * a.n_rel) as usize)?;
+        need("attn sink", sink.dlen(), nt * a.heads as usize)?;
+        need("attn k cache", kc.dlen(), width * a.capacity as usize)?;
+        need("attn v cache", vc.dlen(), width * a.capacity as usize)?;
+        need("attn rel bias", rel_bias.dlen(), (a.extent * a.n_rel) as usize)?;
+        need("attn work", work.dlen(), attn_workspace(ntok, a.heads, a.head_dim, max_splits))?;
+        need("attn out", out.dlen(), nt * (a.heads * a.head_dim) as usize)?;
+        need("attn pos", pos.dlen(), 1)?;
+        let (mut pq, mut pr, mut ps, mut pk, mut pv, mut pb, mut pw, mut pp) = (q.dptr(), r.dptr(), sink.dptr(), kc.dptr(), vc.dptr(), rel_bias.dptr(), work.dptr(), pos.dptr());
+        let (mut h, mut kh, mut nr, mut ex, mut win, mut cap, mut ms) = (a.heads, a.kv_heads, a.n_rel, a.extent, a.window, a.capacity, max_splits);
+        let mut scale = 1.0f32 / (a.head_dim as f32).sqrt();
+        let mut p = [
+            param(&mut pq),
+            param(&mut pr),
+            param(&mut ps),
+            param(&mut pk),
+            param(&mut pv),
+            param(&mut pb),
+            param(&mut pw),
+            param(&mut pp),
+            param(&mut h),
+            param(&mut kh),
+            param(&mut nr),
+            param(&mut ex),
+            param(&mut win),
+            param(&mut scale),
+            param(&mut cap),
+            param(&mut ms),
+        ];
+        // One chunk per split (decode, exact-size prefill splits) or splits looping over chunks
+        // (graph-captured multi-token passes with a capped split count).
+        let f = if chunk_loop { &self.attn_split } else { &self.attn_split1 };
+        Self::go(f, s, LaunchConfig { grid: (a.heads, max_splits, ntok), block: (128, 1, 1), shared_mem_bytes: 0 }, &mut p)?;
+        let (mut pw2, mut po, mut pp2, mut win2, mut cap2, mut ms2) = (work.dptr(), out.dptr(), pos.dptr(), a.window, a.capacity, max_splits);
+        let cfg = LaunchConfig { grid: (a.heads, ntok, 1), block: (128, 1, 1), shared_mem_bytes: 0 };
+        match gate {
+            // Merge + output gate + quantisation for the O projection (gate_q8) in one kernel.
+            Some((g, qa)) => {
+                need("attn gate", g.dlen(), nt * (a.heads * a.head_dim) as usize)?;
+                if qa.k != a.heads * a.head_dim {
+                    return Err(invalid(format!("attn gate: activations k {} != {}", qa.k, a.heads * a.head_dim)));
+                }
+                let (mut pq, mut pd, mut ph) = qa.planes_for(ntok)?;
+                let mut pg = g.dptr();
+                let mut p2 = [param(&mut pw2), param(&mut po), param(&mut pp2), param(&mut win2), param(&mut cap2), param(&mut ms2), param(&mut pg), param(&mut pq), param(&mut pd), param(&mut ph)];
+                Self::go(&self.attn_merge_q8, s, cfg, &mut p2)
+            }
+            None => {
+                let mut p2 = [param(&mut pw2), param(&mut po), param(&mut pp2), param(&mut win2), param(&mut cap2), param(&mut ms2)];
+                Self::go(&self.attn_merge, s, cfg, &mut p2)
+            }
+        }
+    }
+
+    fn grid_ct(channels: u32, ntok: u32) -> LaunchConfig {
+        LaunchConfig { grid: (channels.div_ceil(128), ntok, 1), block: (128, 1, 1), shared_mem_bytes: 0 }
+    }
+
+    /// Prefill short conv, every (token, channel) in parallel: `dst[t] = conv(src)[t]` with the
+    /// saved state for the first inputs and optional per-token taps `(taps, stride, heads)`.
+    /// Does not touch the state: follow with [`InklingOps::conv_state`].
+    #[allow(clippy::too_many_arguments)]
+    pub fn conv_par(
+        &self,
+        s: &Stream,
+        src: &dyn Dev<f32>,
+        src_stride: usize,
+        dst: &mut dyn DevMut<f32>,
+        dst_stride: usize,
+        ntok: u32,
+        state: &dyn Dev<f32>,
+        weight: &dyn Dev<f32>,
+        taps: Option<(&dyn Dev<f32>, usize, u32)>,
+        channels: u32,
+        hist: Option<&mut dyn DevMut<f32>>,
+    ) -> Result<()> {
+        let (c, nt) = (channels as usize, ntok as usize);
+        if nt == 0 || src_stride < c || dst_stride < c {
+            return Err(invalid("conv_par: need tokens > 0 and strides >= channels".into()));
+        }
+        need("conv_par src", src.dlen(), (nt - 1) * src_stride + c)?;
+        need("conv_par dst", dst.dlen(), (nt - 1) * dst_stride + c)?;
+        need("conv_par state", state.dlen(), 3 * c)?;
+        need("conv_par weight", weight.dlen(), 4 * c)?;
+        let (mut pd, mut ds, mut dh) = (0, 0u32, 0u32);
+        if let Some((t, stride, heads)) = taps {
+            if heads == 0 || !channels.is_multiple_of(heads) || stride < 4 * heads as usize {
+                return Err(invalid(format!("conv_par: {channels} channels / {heads} tap heads / stride {stride}")));
+            }
+            need("conv_par taps", t.dlen(), (nt - 1) * stride + 4 * heads as usize)?;
+            (pd, ds, dh) = (t.dptr(), stride as u32, heads);
+        }
+        let mut phist = match hist {
+            Some(h) => {
+                need("conv_par hist", h.dlen(), nt * c)?;
+                h.dptr()
+            }
+            None => 0,
+        };
+        let (mut px, mut xs, mut po, mut os, mut n, mut ps, mut pw, mut ch) = (src.dptr(), src_stride as u32, dst.dptr(), dst_stride as u32, ntok, state.dptr(), weight.dptr(), channels);
+        let mut p = [
+            param(&mut px),
+            param(&mut xs),
+            param(&mut po),
+            param(&mut os),
+            param(&mut n),
+            param(&mut ps),
+            param(&mut pw),
+            param(&mut pd),
+            param(&mut ds),
+            param(&mut dh),
+            param(&mut ch),
+            param(&mut phist),
+        ];
+        Self::go(&self.conv_par, s, Self::grid_ct(channels, ntok), &mut p)
+    }
+
+    /// Prefill residual conv (token-major, width `channels`): `y = conv(src)`, then
+    /// `bank_row = cur, cur = y` or `cur += y`. Follow with [`InklingOps::conv_state`].
+    #[allow(clippy::too_many_arguments)]
+    /// `hist` (verify passes): also stores the conv inputs `src` there (`[ntok][channels]`).
+    #[allow(clippy::too_many_arguments)]
+    pub fn conv_res_par(
+        &self,
+        s: &Stream,
+        src: &dyn Dev<f32>,
+        ntok: u32,
+        state: &dyn Dev<f32>,
+        weight: &dyn Dev<f32>,
+        cur: &mut dyn DevMut<f32>,
+        bank_row: Option<&mut dyn DevMut<f32>>,
+        channels: u32,
+        hist: Option<&mut dyn DevMut<f32>>,
+    ) -> Result<()> {
+        let n = (channels * ntok) as usize;
+        need("conv_res_par src", src.dlen(), n)?;
+        need("conv_res_par state", state.dlen(), 3 * channels as usize)?;
+        need("conv_res_par weight", weight.dlen(), 4 * channels as usize)?;
+        need("conv_res_par cur", cur.dlen(), n)?;
+        let pb = match bank_row {
+            Some(b) => {
+                need("conv_res_par bank row", b.dlen(), n)?;
+                b.dptr()
+            }
+            None => 0,
+        };
+        let mut phist = match hist {
+            Some(h) => {
+                need("conv_res_par hist", h.dlen(), n)?;
+                h.dptr()
+            }
+            None => 0,
+        };
+        let (mut px, mut nt, mut ps, mut pw, mut pc, mut pb, mut ch) = (src.dptr(), ntok, state.dptr(), weight.dptr(), cur.dptr(), pb, channels);
+        let mut p = [param(&mut px), param(&mut nt), param(&mut ps), param(&mut pw), param(&mut pc), param(&mut pb), param(&mut ch), param(&mut phist)];
+        Self::go(&self.conv_res_par, s, Self::grid_ct(channels, ntok), &mut p)
+    }
+
+    /// Conv state after `ntok` inputs of `src` (row t at `t * src_stride`).
+    pub fn conv_state(&self, s: &Stream, src: &dyn Dev<f32>, src_stride: usize, ntok: u32, state: &mut dyn DevMut<f32>, channels: u32) -> Result<()> {
+        let c = channels as usize;
+        if ntok == 0 || src_stride < c {
+            return Err(invalid("conv_state: need tokens > 0 and stride >= channels".into()));
+        }
+        need("conv_state src", src.dlen(), (ntok as usize - 1) * src_stride + c)?;
+        need("conv_state state", state.dlen(), 3 * c)?;
+        let (mut px, mut xs, mut nt, mut ps, mut ch) = (src.dptr(), src_stride as u32, ntok, state.dptr(), channels);
+        let mut p = [param(&mut px), param(&mut xs), param(&mut nt), param(&mut ps), param(&mut ch)];
+        Self::go(&self.conv_state, s, LaunchConfig { grid: (channels.div_ceil(128), 1, 1), block: (128, 1, 1), shared_mem_bytes: 0 }, &mut p)
+    }
+
+    /// `out[t][c] = sum_s w[t][s] y[t][s][c]` over `ntok` tokens.
+    pub fn moe_combine_t(&self, s: &Stream, y: &dyn Dev<f32>, w: &dyn Dev<f32>, out: &mut dyn DevMut<f32>, dim: u32, slots: u32, ntok: u32) -> Result<()> {
+        need("combine y", y.dlen(), (dim * slots * ntok) as usize)?;
+        need("combine w", w.dlen(), (slots * ntok) as usize)?;
+        need("combine out", out.dlen(), (dim * ntok) as usize)?;
+        let (mut py, mut pw, mut po, mut d, mut sl, mut nt) = (y.dptr(), w.dptr(), out.dptr(), dim, slots, ntok);
+        let mut p = [param(&mut py), param(&mut pw), param(&mut po), param(&mut d), param(&mut sl), param(&mut nt)];
+        Self::go(&self.moe_combine_t, s, Self::grid_ct(dim, ntok), &mut p)
+    }
+
+    /// Loop controller for `ntok` prefill tokens: `out[t] = control(x[t], msg[t])` as two f32
+    /// GEMMs (down: split-K over concat(rms x, rms msg); gain/forget) and an elementwise apply.
+    /// Scratch: `rms` 2 * ntok floats, `cd` ntok * rank (zeroed here), `gf` ntok * 2 * dim.
+    #[allow(clippy::too_many_arguments)]
+    pub fn ctrl_t(
+        &self,
+        s: &Stream,
+        wd: &GemvMatrix,
+        wgf: &GemvMatrix,
+        x: &dyn Dev<f32>,
+        x_stride: usize,
+        msg: &dyn Dev<f32>,
+        msg_stride: usize,
+        rms: &mut dyn DevMut<f32>,
+        cd: &mut crate::DeviceBufferF32,
+        gf: &mut dyn DevMut<f32>,
+        out: &mut dyn DevMut<f32>,
+        dim: u32,
+        ntok: u32,
+    ) -> Result<()> {
+        Self::f32_mat(wd, wd.n, 2 * dim, "ctrl_t down")?;
+        Self::f32_mat(wgf, 2 * dim, wd.n, "ctrl_t gain/forget")?;
+        let (d, nt, rank) = (dim as usize, ntok as usize, wd.n);
+        if nt == 0 || x_stride < d || msg_stride < d {
+            return Err(invalid("ctrl_t: need tokens > 0 and strides >= dim".into()));
+        }
+        need("ctrl_t x", x.dlen(), (nt - 1) * x_stride + d)?;
+        need("ctrl_t msg", msg.dlen(), (nt - 1) * msg_stride + d)?;
+        need("ctrl_t rms", rms.dlen(), 2 * nt)?;
+        need("ctrl_t cd", cd.len(), nt * rank as usize)?;
+        need("ctrl_t gf", gf.dlen(), nt * 2 * d)?;
+        need("ctrl_t out", out.dlen(), nt * d)?;
+        let (mut px, mut xs, mut pm, mut ms, mut pr, mut dd) = (x.dptr(), x_stride as u32, msg.dptr(), msg_stride as u32, rms.dptr(), dim);
+        let mut p = [param(&mut px), param(&mut xs), param(&mut pm), param(&mut ms), param(&mut pr), param(&mut dd)];
+        Self::go(&self.rms2, s, LaunchConfig { grid: (ntok, 1, 1), block: (256, 1, 1), shared_mem_bytes: 0 }, &mut p)?;
+        cd.zero_async(s)?;
+        // cd = concat(rx x, rm msg) . W_down^T, K = 2 dim split 8 ways.
+        let k = 2 * dim;
+        let splits = 8u32;
+        let kps = k.div_ceil(splits).next_multiple_of(32);
+        self.sgemm(s, x.dptr(), msg.dptr(), x_stride as u32, msg_stride as u32, dim, rms.dptr(), wd.qs.device_ptr(), k, cd.device_ptr(), rank, ntok, rank, k, kps, true)?;
+        // gf = cd . W_gf^T (gain rows then forget rows).
+        self.sgemm(s, cd.device_ptr(), 0, rank, rank, rank, 0, wgf.qs.device_ptr(), rank, gf.dptr(), 2 * dim, ntok, 2 * dim, rank, rank.next_multiple_of(32), false)?;
+        let (mut pg, mut px, mut xs, mut pm, mut ms, mut po, mut dd, mut n) = (gf.dptr(), x.dptr(), x_stride as u32, msg.dptr(), msg_stride as u32, out.dptr(), dim, ntok);
+        let mut p = [param(&mut pg), param(&mut px), param(&mut xs), param(&mut pm), param(&mut ms), param(&mut po), param(&mut dd), param(&mut n)];
+        Self::go(&self.ctrl_apply, s, LaunchConfig { grid: (dim.div_ceil(256), ntok, 1), block: (256, 1, 1), shared_mem_bytes: 0 }, &mut p)
+    }
+
+    /// `c[m][n] = sum_k a[m][k] * w[n][k]` in f32 (`a` rows `lda` apart, `w` an F32 matrix,
+    /// `c` rows of `w.n`): small dense GEMMs (prefill projections kept in high precision).
+    /// K is split 8 ways (atomic adds into `c`, which is zeroed first) to fill the GPU.
+    pub fn gemm_f32(&self, s: &Stream, a: &dyn Dev<f32>, lda: usize, w: &GemvMatrix, c: &mut crate::DeviceBufferF32, m: u32) -> Result<()> {
+        if w.ty != GemvType::F32 || w.n_mats != 1 || m == 0 || lda < w.k as usize {
+            return Err(invalid(format!("gemm_f32: need one F32 matrix, m > 0, lda >= k (got {:?}, m {m}, lda {lda})", w.ty)));
+        }
+        need("gemm_f32 a", a.dlen(), (m as usize - 1) * lda + w.k as usize)?;
+        need("gemm_f32 c", c.len(), (m * w.n) as usize)?;
+        c.zero_async(s)?;
+        let kps = w.k.div_ceil(8).next_multiple_of(32);
+        self.sgemm(s, a.dptr(), 0, lda as u32, lda as u32, w.k, 0, w.qs.device_ptr(), w.k, c.device_ptr(), w.n, m, w.n, w.k, kps, true)
+    }
+
+    /// Raw launch of astral_ink_sgemm_tn; callers have checked every extent.
+    #[allow(clippy::too_many_arguments)]
+    fn sgemm(
+        &self,
+        s: &Stream,
+        a0: DevicePtr,
+        a1: DevicePtr,
+        lda: u32,
+        lda1: u32,
+        k_split: u32,
+        row_scale: DevicePtr,
+        w: DevicePtr,
+        ldw: u32,
+        c: DevicePtr,
+        ldc: u32,
+        m: u32,
+        n: u32,
+        k: u32,
+        k_per_split: u32,
+        atomic: bool,
+    ) -> Result<()> {
+        let (mut pa0, mut pa1, mut la, mut la1, mut ks, mut prs, mut pw, mut lw, mut pc, mut lc, mut mm, mut nn, mut kk, mut kps, mut at) =
+            (a0, a1, lda, lda1, k_split, row_scale, w, ldw, c, ldc, m, n, k, k_per_split, atomic as u32);
+        let mut p = [
+            param(&mut pa0),
+            param(&mut pa1),
+            param(&mut la),
+            param(&mut la1),
+            param(&mut ks),
+            param(&mut prs),
+            param(&mut pw),
+            param(&mut lw),
+            param(&mut pc),
+            param(&mut lc),
+            param(&mut mm),
+            param(&mut nn),
+            param(&mut kk),
+            param(&mut kps),
+            param(&mut at),
+        ];
+        let splits = k.div_ceil(k_per_split);
+        Self::go(&self.sgemm_tn, s, LaunchConfig { grid: (n.div_ceil(32), m.div_ceil(32), splits), block: (256, 1, 1), shared_mem_bytes: 0 }, &mut p)
+    }
+
+    /// Flash-attention prefill on tensor cores for `ntok` causal queries at positions
+    /// `pos[0]..` (keys already in the cache). `head_dim` must be 128 and `n_rel <= 16`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn attn_prefill(
+        &self,
+        s: &Stream,
+        q: &impl Dev<f32>,
+        r: &impl Dev<f32>,
+        sink: &impl Dev<f32>,
+        kc: &impl Dev<u16>,
+        vc: &impl Dev<u16>,
+        rel_bias: &impl Dev<f32>,
+        out: &mut impl DevMut<f32>,
+        pos: &impl Dev<i32>,
+        a: AttnShape,
+        ntok: u32,
+    ) -> Result<()> {
+        if a.head_dim != 128 || a.n_rel > 16 || !a.n_rel.is_multiple_of(4) || a.kv_heads == 0 || !a.heads.is_multiple_of(a.kv_heads) || a.capacity == 0 || a.capacity > MAX_CTX || ntok == 0 {
+            return Err(invalid(format!("attn prefill: unsupported shape {a:?} (head_dim 128, n_rel <= 16 and % 4 == 0)")));
+        }
+        let (width, nt) = ((a.kv_heads * a.head_dim) as usize, ntok as usize);
+        need("attn q", q.dlen(), nt * (a.heads * a.head_dim) as usize)?;
+        need("attn r", r.dlen(), nt * (a.heads * a.n_rel) as usize)?;
+        need("attn sink", sink.dlen(), nt * a.heads as usize)?;
+        need("attn k cache", kc.dlen(), width * a.capacity as usize)?;
+        need("attn v cache", vc.dlen(), width * a.capacity as usize)?;
+        need("attn rel bias", rel_bias.dlen(), (a.extent * a.n_rel) as usize)?;
+        need("attn out", out.dlen(), nt * (a.heads * a.head_dim) as usize)?;
+        need("attn pos", pos.dlen(), 1)?;
+        let (mut pq, mut pr, mut ps, mut pk, mut pv, mut pb, mut po, mut pp) = (q.dptr(), r.dptr(), sink.dptr(), kc.dptr(), vc.dptr(), rel_bias.dptr(), out.dptr(), pos.dptr());
+        let (mut n, mut h, mut kh, mut nr, mut ex, mut win, mut cap) = (ntok, a.heads, a.kv_heads, a.n_rel, a.extent, a.window, a.capacity);
+        let mut scale = 1.0f32 / (a.head_dim as f32).sqrt();
+        let mut p = [
+            param(&mut pq),
+            param(&mut pr),
+            param(&mut ps),
+            param(&mut pk),
+            param(&mut pv),
+            param(&mut pb),
+            param(&mut po),
+            param(&mut pp),
+            param(&mut n),
+            param(&mut h),
+            param(&mut kh),
+            param(&mut nr),
+            param(&mut ex),
+            param(&mut win),
+            param(&mut scale),
+            param(&mut cap),
+        ];
+        Self::go(&self.attn_prefill, s, LaunchConfig { grid: (ntok.div_ceil(64), a.heads, 1), block: (128, 1, 1), shared_mem_bytes: 0 }, &mut p)
+    }
+
+    /// Groups the `p = ntok * k` router picks in `ids` by expert into tensor-core GEMM work
+    /// lists for gate_up (`*_gu`, activation row = token) and down (`*_dn`, row = pair), on
+    /// the GPU. Each items buffer holds `max_items` entries (3 words); unused ones get count 0.
+    /// At most `min(p, p / 64 + n_expert)` items are ever used (each holds at least one pick).
+    #[allow(clippy::too_many_arguments)]
+    pub fn moe_group(
+        &self,
+        s: &Stream,
+        ids: &dyn Dev<i32>,
+        p: u32,
+        k: u32,
+        n_expert: u32,
+        gu: (&mut dyn DevMut<u32>, &mut dyn DevMut<u32>, &mut dyn DevMut<u32>),
+        dn: (&mut dyn DevMut<u32>, &mut dyn DevMut<u32>, &mut dyn DevMut<u32>),
+        max_items: u32,
+    ) -> Result<()> {
+        if p == 0 || k == 0 || n_expert == 0 || n_expert > 255 || max_items < (p.div_ceil(64) + n_expert).min(p) {
+            return Err(invalid(format!("moe_group: {p} picks, {n_expert} experts, {max_items} items")));
+        }
+        need("moe_group ids", ids.dlen(), p as usize)?;
+        for (w, b) in [("items gu", gu.0.dlen()), ("items dn", dn.0.dlen())] {
+            need(w, b, 3 * max_items as usize)?;
+        }
+        for (w, b) in [("xidx gu", gu.1.dlen()), ("yidx gu", gu.2.dlen()), ("xidx dn", dn.1.dlen()), ("yidx dn", dn.2.dlen())] {
+            need(w, b, p as usize)?;
+        }
+        let (mut pi, mut pp, mut kk, mut ne) = (ids.dptr(), p, k, n_expert);
+        let (mut a0, mut a1, mut a2, mut b0, mut b1, mut b2, mut mi) = (gu.0.dptr(), gu.1.dptr(), gu.2.dptr(), dn.0.dptr(), dn.1.dptr(), dn.2.dptr(), max_items);
+        let mut prm = [param(&mut pi), param(&mut pp), param(&mut kk), param(&mut ne), param(&mut a0), param(&mut a1), param(&mut a2), param(&mut b0), param(&mut b1), param(&mut b2), param(&mut mi)];
+        Self::go(&self.moe_group, s, LaunchConfig { grid: (1, 1, 1), block: (1024, 1, 1), shared_mem_bytes: 0 }, &mut prm)
+    }
+
+    /// Groups the `p = ntok * k` router picks in `ids` by expert into [`crate::ops::QItem`]
+    /// work lists for [`crate::ops::Gemv::launch_items`] (up to 8 picks per item, so a small
+    /// batch reads each used expert once): gate_up items map token -> pair row, down items pair
+    /// -> pair. Each list holds `max_items` items; unused ones get n = 0.
+    #[allow(clippy::too_many_arguments)]
+    pub fn moe_group_q(&self, s: &Stream, ids: &dyn Dev<i32>, p: u32, k: u32, n_expert: u32, items_gu: &mut dyn DevMut<u32>, items_dn: &mut dyn DevMut<u32>, max_items: u32) -> Result<()> {
+        if p == 0 || k == 0 || n_expert == 0 || n_expert > 255 || max_items < moe_items_bound(p, n_expert) {
+            return Err(invalid(format!("moe_group_q: {p} picks, {n_expert} experts, {max_items} items")));
+        }
+        need("moe_group_q ids", ids.dlen(), p as usize)?;
+        let words = max_items as usize * crate::ops::QItem::WORDS;
+        need("moe_group_q items gu", items_gu.dlen(), words)?;
+        need("moe_group_q items dn", items_dn.dlen(), words)?;
+        let (mut pi, mut pp, mut kk, mut ne, mut a, mut b, mut mi) = (ids.dptr(), p, k, n_expert, items_gu.dptr(), items_dn.dptr(), max_items);
+        let mut prm = [param(&mut pi), param(&mut pp), param(&mut kk), param(&mut ne), param(&mut a), param(&mut b), param(&mut mi)];
+        Self::go(&self.moe_group_q, s, LaunchConfig { grid: (1, 1, 1), block: (1024, 1, 1), shared_mem_bytes: 0 }, &mut prm)
+    }
+}

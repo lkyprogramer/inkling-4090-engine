@@ -1,0 +1,11 @@
+[package]
+name = "astral-runtime"
+description = "Astral: engine thread, step pipeline, request lifecycle."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+astral-core.workspace = true
+core_affinity = "0.8"

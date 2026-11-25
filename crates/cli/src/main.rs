@@ -1,0 +1,536 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2026 Synthetic Minds LTD
+//! `astral` command-line tool.
+//!
+//!   astral hw [--bench | --bench-fresh]   print detected hardware as JSON; --bench reuses a
+//!                         cached bandwidth result for this GPU/driver/clocks, --bench-fresh re-measures
+//!   astral selftest       run every GPU kernel against its CPU reference
+//!   astral gguf-info <file> [--tensors]   summarise a GGUF file (metadata, types, layout)
+//!   astral verify-embd <file> <eval_callback.log>   match token_embd rows against a llama.cpp dump
+//!   astral verify-model <file> <eval_callback.log>   run the prompt tokens and compare every layer slot
+//!   astral generate <file> <n> <token ids...>   greedy decode n tokens, report tok/s
+//!   astral kbench <mxfp4-gemv | mxfp4-mma | mxfp4-mma-f16> <n> <k> <b> [iters]   time one kernel (for Nsight Compute)
+//!   astral version        print version and build information
+
+#![forbid(unsafe_code)]
+
+use astral_core::Result;
+use std::process::ExitCode;
+
+const USAGE: &str = "usage: astral <hw [--bench | --bench-fresh] | selftest | gguf-info <file> [--tensors] | verify-embd <file> <log> | verify-model <file> <log> | generate <file> <n> <ids...> | spec-generate <gguf> <checkpoint dir> <k> <n> <ids...|@file> | serve <gguf> --checkpoint <dir> [--no-draft] [--k 6] [--host 0.0.0.0] [--port 8000] [--ctx 8192] [--name inkling-2-mini] | version>";
+
+fn main() -> ExitCode {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let result = match args.first().map(String::as_str) {
+        Some("hw") => cmd_hw(if args.iter().any(|a| a == "--bench-fresh") {
+            astral_hw::BenchMode::Fresh
+        } else if args.iter().any(|a| a == "--bench") {
+            astral_hw::BenchMode::Cached
+        } else {
+            astral_hw::BenchMode::Skip
+        }),
+        Some("selftest") => cmd_selftest(),
+        Some("gguf-info") if args.len() >= 2 => cmd_gguf_info(&args[1], args.iter().any(|a| a == "--tensors")),
+        Some("verify-embd") if args.len() >= 3 => cmd_verify_embd(&args[1], &args[2]),
+        Some("verify-model") if args.len() >= 3 => cmd_verify_model(&args[1], &args[2]),
+        Some("score") if args.len() >= 3 => cmd_score(&args[1], &args[2..]),
+        Some("qwen-generate") if args.len() >= 4 => cmd_qwen_generate(&args[1], &args[2], &args[3..]),
+        Some("generate") if args.len() >= 4 => cmd_generate(&args[1], &args[2], &args[3..]),
+        Some("serve") if args.len() >= 2 => cmd_serve(&args[1..]),
+        Some("cmp-prefill") if args.len() >= 3 => cmd_cmp_prefill(&args[1], &args[2..]),
+        Some("spec-generate") if args.len() >= 6 => cmd_spec_generate(&args[1], &args[2], &args[3], &args[4], &args[5..]),
+        Some("kbench") if args.len() >= 5 && args[1] == "mxfp4-gemv" => cmd_kbench_mxfp4(&args[2..], false),
+        Some("kbench") if args.len() >= 5 && args[1] == "mxfp4-mma" => cmd_kbench_mxfp4(&args[2..], true),
+        Some("kbench") if args.len() >= 5 && args[1] == "mxfp4-mma-f16" => cmd_kbench_mxfp4_f16(&args[2..]),
+        Some("version") | Some("--version") | Some("-V") => {
+            cmd_version();
+            Ok(true)
+        }
+        _ => {
+            eprintln!("{USAGE}");
+            return ExitCode::from(2);
+        }
+    };
+    match result {
+        Ok(true) => ExitCode::SUCCESS,
+        Ok(false) => ExitCode::from(1),
+        Err(e) => {
+            eprintln!("error: {e}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+fn cmd_version() {
+    println!("astral {}", env!("CARGO_PKG_VERSION"));
+    println!("kernels built for: {:?}", astral_kernels::BUILT_ARCHS);
+    println!("nvcc: {}", astral_kernels::NVCC_VERSION);
+}
+
+fn cmd_hw(mode: astral_hw::BenchMode) -> Result<bool> {
+    let report = astral_hw::probe(mode)?;
+    println!("{}", serde_json::to_string_pretty(&report).expect("report serialises"));
+    Ok(true)
+}
+
+fn cmd_selftest() -> Result<bool> {
+    let n = astral_gpu::Device::count()?;
+    if n == 0 {
+        eprintln!("no CUDA devices found");
+        return Ok(false);
+    }
+    let dev = astral_gpu::Device::get(0)?;
+    println!("device 0: {} (cc {:?})", dev.name()?, dev.compute_capability()?);
+    let ctx = astral_gpu::Context::new(dev)?;
+    let results = astral_testing::selftest::run(&ctx)?;
+    let mut all = true;
+    for r in &results {
+        all &= r.pass;
+        println!("{:<5} {:<20} {:<20} max_scaled_err={:.3e} (tol {:.1e})", if r.pass { "PASS" } else { "FAIL" }, r.kernel, r.case, r.error.max_scaled, r.tolerance);
+        if let Some(info) = &r.info {
+            println!("      {info}");
+        }
+    }
+    println!("{} / {} cases passed", results.iter().filter(|r| r.pass).count(), results.len());
+    Ok(all)
+}
+
+fn cmd_gguf_info(path: &str, list_tensors: bool) -> Result<bool> {
+    let g = astral_loader::Gguf::open(path)?;
+    let arch = g.architecture().unwrap_or("?").to_string();
+    println!("file        {}", g.path.display());
+    println!("gguf        v{}  alignment {}  data offset {}  file {} bytes", g.version, g.alignment, g.data_offset, g.file_len);
+    println!("arch        {arch}   name {}", g.get("general.name").map(|v| v.summary()).unwrap_or_default());
+    println!("tensors     {}   metadata keys {}", g.tensors.len(), g.metadata.len());
+    let (gap, data) = g.coverage();
+    println!("coverage    {} of {} data bytes are alignment padding", gap, data);
+    println!("types:");
+    for (ty, (n, bytes)) in g.type_tally() {
+        println!("  {ty:<8} {n:>5} tensors  {:>9.3} GB", bytes as f64 / 1e9);
+    }
+    println!("{arch}.* keys:");
+    for (k, v) in &g.metadata {
+        if k.starts_with(&format!("{arch}.")) {
+            println!("  {k} = {}", v.summary());
+        }
+    }
+    if list_tensors {
+        for t in &g.tensors {
+            println!("  {:<48} {:<7} {:?}", t.name, t.ty.name(), t.dims);
+        }
+    }
+    Ok(true)
+}
+
+fn cmd_verify_embd(path: &str, log_path: &str) -> Result<bool> {
+    let g = astral_loader::Gguf::open(path)?;
+    let log = std::fs::read_to_string(log_path)?;
+    let printed = astral_testing::golden::parse_first(&log, "embd").ok_or_else(|| astral_core::AstralError::Invalid("no `embd` tensor in the dump".into()))?;
+    let m = astral_testing::golden::match_embedding_rows(&g, "token_embd.weight", &printed)?;
+    println!("printed rows {}  matched token ids {:?}", printed.rows.len(), m.token_ids);
+    println!("sum: astral {:.6}  llama.cpp {:.6}  diff {:.3e}", m.our_sum, m.printed_sum, m.our_sum - m.printed_sum);
+    let ok = m.pass(1e-5);
+    println!("{}", if ok { "PASS" } else { "FAIL" });
+    Ok(ok)
+}
+
+/// The prompt of the llama.cpp eval-callback dump (identified by `verify-embd`).
+const GOLDEN_PROMPT: [u32; 5] = [371, 151451, 149879, 151194, 149884];
+
+fn load_session(path: &str, capacity: u32) -> Result<astral_model::inkling::Session> {
+    let ctx = astral_gpu::Context::new(astral_gpu::Device::get(0)?)?;
+    let g = astral_loader::Gguf::open(path)?;
+    let t0 = std::time::Instant::now();
+    let w = astral_model::inkling::Weights::load(&ctx, &g)?;
+    eprintln!("loaded {:.2} GB of weights in {:.1} s", w.bytes as f64 / 1e9, t0.elapsed().as_secs_f64());
+    astral_model::inkling::Session::new(&ctx, w, capacity)
+}
+
+/// Max |a - b| over the printed first/last three values of each row.
+fn row_diff(rows: &[Vec<f32>], printed: &astral_testing::golden::PrintedTensor) -> f64 {
+    let mut m = 0.0f64;
+    for (r, (head, tail)) in rows.iter().zip(&printed.rows) {
+        let n = r.len();
+        for i in 0..3 {
+            m = m.max((r[i] as f64 - head[i]).abs()).max((r[n - 3 + i] as f64 - tail[i]).abs());
+        }
+    }
+    m
+}
+
+fn cmd_verify_model(path: &str, log_path: &str) -> Result<bool> {
+    let log = std::fs::read_to_string(log_path)?;
+    let mut s = load_session(path, 64)?;
+    s.capture = true;
+    s.set_debug(true);
+    let mut dbg: std::collections::BTreeMap<&'static str, Vec<Vec<f32>>> = Default::default();
+    let mut order: Vec<&'static str> = Vec::new();
+    let mut per_slot: std::collections::BTreeMap<usize, Vec<Vec<f32>>> = Default::default();
+    let mut next = 0;
+    for &t in &GOLDEN_PROMPT {
+        next = s.step(t)?;
+        for (slot, v) in s.captured.drain(..) {
+            per_slot.entry(slot).or_default().push(v);
+        }
+        for (name, v) in s.take_debug() {
+            if !order.contains(&name) {
+                order.push(name);
+            }
+            dbg.entry(name).or_default().push(v);
+        }
+    }
+    for name in &order {
+        let rows = &dbg[name];
+        let ours: f64 = rows.iter().flatten().map(|&x| x as f64).sum();
+        match astral_testing::golden::parse_first(&log, &format!("{name}-{}", astral_model::inkling::tap_layer())) {
+            Some(p) if p.rows.len() == rows.len() => {
+                println!("  {name:<16} max|d| {:.2e}  sum astral {ours:>12.4} llama.cpp {:>12.4}", row_diff(rows, &p), p.sum)
+            }
+            Some(p) => println!("  {name:<16} sum astral {ours:>12.4} llama.cpp {:>12.4} (printed as {} rows)", p.sum, p.rows.len()),
+            None => println!("  {name:<16} sum astral {ours:>12.4}  first {:?}", &rows[0][..3]),
+        }
+    }
+    let mut ok = true;
+    for (slot, rows) in &per_slot {
+        let Some(p) = astral_testing::golden::parse_first(&log, &format!("l_out-{slot}")) else {
+            println!("l_out-{slot:<2}  (not in the dump)");
+            continue;
+        };
+        let sum: f64 = rows.iter().flatten().map(|&x| x as f64).sum();
+        let diff = row_diff(rows, &p);
+        let rel = (sum - p.sum).abs() / p.sum.abs().max(1.0);
+        let pass = diff <= 0.05 * rows.iter().flatten().fold(1.0f32, |m, &x| m.max(x.abs())) as f64;
+        ok &= pass;
+        println!("l_out-{slot:<2}  max|d| {diff:.2e}  sum astral {sum:>12.4} llama.cpp {:>12.4} (rel {rel:.1e})  {}", p.sum, if pass { "ok" } else { "DIFF" });
+    }
+    let logits = s.logits()?;
+    if let Some(p) = astral_testing::golden::parse_first(&log, "result_output") {
+        let sum: f64 = logits.iter().map(|&x| x as f64).sum();
+        let diff = row_diff(std::slice::from_ref(&logits), &p);
+        println!("decode  result_output  max|d| {diff:.2e}  sum astral {sum:.4} llama.cpp {:.4}", p.sum);
+    }
+
+    // The same prompt as one batched prefill (llama.cpp's dump is itself a prefill).
+    s.reset()?;
+    s.set_debug(false);
+    let next_p = s.prefill(&GOLDEN_PROMPT)?;
+    println!("prefill:");
+    let d = s.w.cfg.dim;
+    for (slot, v) in s.captured.clone() {
+        let Some(p) = astral_testing::golden::parse_first(&log, &format!("l_out-{slot}")) else { continue };
+        let rows: Vec<Vec<f32>> = v.chunks(d).map(|c| c.to_vec()).collect();
+        let sum: f64 = v.iter().map(|&x| x as f64).sum();
+        let diff = row_diff(&rows, &p);
+        let pass = diff <= 0.05 * rows.iter().flatten().fold(1.0f32, |m, &x| m.max(x.abs())) as f64;
+        ok &= pass;
+        println!("l_out-{slot:<2}  max|d| {diff:.2e}  sum astral {sum:>12.4} llama.cpp {:>12.4}  {}", p.sum, if pass { "ok" } else { "DIFF" });
+    }
+    println!("prefill greedy next token: {next_p} (decode path: {next})");
+    ok &= next_p == next;
+    let logits = s.logits()?;
+    if let Some(p) = astral_testing::golden::parse_first(&log, "result_output") {
+        let sum: f64 = logits.iter().map(|&x| x as f64).sum();
+        let diff = row_diff(std::slice::from_ref(&logits), &p);
+        println!("result_output  max|d| {diff:.2e}  sum astral {sum:.4} llama.cpp {:.4}", p.sum);
+        ok &= diff < 0.25;
+    }
+    println!("greedy next token after the prompt: {next}");
+    println!("{}", if ok { "PASS" } else { "FAIL" });
+    Ok(ok)
+}
+
+/// Teacher-forced: after each token, our greedy pick and the top-2 logit margin.
+fn cmd_score(path: &str, ids: &[String]) -> Result<bool> {
+    let toks: Vec<u32> = ids.iter().filter_map(|t| t.parse().ok()).collect();
+    let mut s = load_session(path, (toks.len() + 1) as u32)?;
+    let mut agree = 0;
+    for (i, &t) in toks.iter().enumerate() {
+        let next = s.step(t)?;
+        let l = s.logits()?;
+        let mut best = (f32::MIN, 0usize, f32::MIN);
+        for (j, &v) in l.iter().enumerate() {
+            if v > best.0 {
+                best = (v, j, best.0);
+            } else if v > best.2 {
+                best.2 = v;
+            }
+        }
+        if let Some(&want) = toks.get(i + 1) {
+            let ok = next == want;
+            agree += ok as usize;
+            println!("pos {i:>3}  next {next:>6}  want {want:>6}  {}  margin {:.3}  logit[want] {:.3}", if ok { "  " } else { "XX" }, best.0 - best.2, l[want as usize]);
+        }
+    }
+    println!("agreement {agree}/{}", toks.len() - 1);
+    Ok(true)
+}
+
+fn cmd_qwen_generate(dir: &str, n: &str, ids: &[String]) -> Result<bool> {
+    let n: usize = n.parse().map_err(|_| astral_core::AstralError::Invalid("n must be a number".into()))?;
+    let prompt: Vec<u32> = ids.iter().filter_map(|t| t.parse().ok()).collect();
+    let ctx = astral_gpu::Context::new(astral_gpu::Device::get(0)?)?;
+    let t0 = std::time::Instant::now();
+    let w = astral_model::qwen35::load(&ctx, std::path::Path::new(dir))?;
+    eprintln!("loaded {:.2} GB in {:.1} s ({} MXFP4 blocks re-encoded)", w.bytes as f64 / 1e9, t0.elapsed().as_secs_f64(), w.reencoded_blocks);
+    let warm: usize = std::env::var("ASTRAL_WARM_PREFILL").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+    let mut s = astral_model::qwen35::Session::new(&ctx, w, (prompt.len() + n + 1).max(warm).min(8192) as u32)?;
+    if warm > 0 {
+        let toks: Vec<u32> = prompt.iter().cycle().take(warm).copied().collect();
+        s.prefill(&toks)?;
+        s.reset()?;
+        let t = std::time::Instant::now();
+        s.prefill(&toks)?;
+        println!("prefill {warm} tokens: {:.1} ms", t.elapsed().as_secs_f64() * 1e3);
+        s.reset()?;
+    }
+    let t1 = std::time::Instant::now();
+    let mut next = if std::env::var_os("ASTRAL_NO_PREFILL").is_some() {
+        let mut x = 0;
+        for &t in &prompt {
+            x = s.step(t)?;
+        }
+        x
+    } else {
+        s.prefill(&prompt)?
+    };
+    let tp = t1.elapsed().as_secs_f64();
+    let mut out = vec![next];
+    let t2 = std::time::Instant::now();
+    for _ in 1..n {
+        next = s.step(next)?;
+        out.push(next);
+    }
+    let td = t2.elapsed().as_secs_f64();
+    println!("tokens: {out:?}");
+    println!("prompt {} tok in {:.3} s; decode {} tok at {:.1} tok/s", prompt.len(), tp, n.saturating_sub(1), (n.saturating_sub(1)) as f64 / td.max(1e-9));
+    Ok(true)
+}
+
+fn cmd_generate(path: &str, n: &str, ids: &[String]) -> Result<bool> {
+    let n: usize = n.parse().map_err(|_| astral_core::AstralError::Invalid("n must be a number".into()))?;
+    let prompt: Vec<u32> = ids.iter().filter_map(|t| t.parse().ok()).collect();
+    if prompt.is_empty() {
+        return Err(astral_core::AstralError::Invalid("no token ids".into()));
+    }
+    let warm_len: usize = std::env::var("ASTRAL_WARM_PREFILL").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+    let cap = std::env::var("ASTRAL_CTX").ok().and_then(|v| v.parse().ok()).unwrap_or((prompt.len() + n + 1).max(warm_len).min(8192) as u32);
+    let mut s = load_session(path, cap)?;
+    if let Ok(w) = std::env::var("ASTRAL_TOUCH") {
+        s.touch(&w)?;
+    }
+    if let Ok(warm) = std::env::var("ASTRAL_WARM_PREFILL") {
+        // Time a prefill of `warm` tokens of the prompt repeated (cold start excluded).
+        let k: usize = warm.parse().unwrap_or(512);
+        let toks: Vec<u32> = prompt.iter().cycle().take(k).copied().collect();
+        s.prefill(&toks)?;
+        s.reset()?;
+        let t = std::time::Instant::now();
+        s.prefill(&toks)?;
+        println!("prefill {k} tokens: {:.1} ms ({:.0} tok/s)", t.elapsed().as_secs_f64() * 1e3, k as f64 / t.elapsed().as_secs_f64());
+        s.reset()?;
+    }
+    let t0 = std::time::Instant::now();
+    let mut next = if std::env::var_os("ASTRAL_NO_PREFILL").is_some() {
+        let mut n = 0;
+        for &t in &prompt {
+            n = s.step(t)?;
+        }
+        n
+    } else {
+        s.prefill(&prompt)?
+    };
+    let tp = t0.elapsed().as_secs_f64();
+    let mut out = vec![next];
+    let t1 = std::time::Instant::now();
+    for _ in 1..n {
+        next = s.step(next)?;
+        out.push(next);
+    }
+    let td = t1.elapsed().as_secs_f64();
+    println!("tokens: {out:?}");
+    println!("prompt {} tok in {:.3} s; decode {} tok at {:.1} tok/s", prompt.len(), tp, n - 1, (n - 1) as f64 / td.max(1e-9));
+    Ok(true)
+}
+
+/// `cmp-prefill <gguf> <ids...|@file>`: last-token logits of a batched prefill vs feeding the
+/// same tokens one decode step at a time (max |diff|, argmax of each).
+fn cmd_cmp_prefill(path: &str, ids: &[String]) -> Result<bool> {
+    let prompt = read_ids(ids)?;
+    let mut s = load_session(path, (prompt.len() + 8) as u32)?;
+    for &t in &prompt {
+        s.step(t)?;
+    }
+    let a = s.logits()?;
+    s.reset()?;
+    s.prefill(&prompt)?;
+    let b = s.logits()?;
+    let am = |v: &[f32]| v.iter().enumerate().fold((0, f32::MIN), |m, (i, &x)| if x > m.1 { (i, x) } else { m });
+    let diff = a.iter().zip(&b).map(|(x, y)| (x - y).abs()).fold(0f32, f32::max);
+    println!("{} tokens: max |logit diff| {diff:.4}; argmax step {:?} prefill {:?}", prompt.len(), am(&a), am(&b));
+    Ok(true)
+}
+
+/// `serve <gguf> --checkpoint <dir> [--no-draft] [--k N] [--host H] [--port P] [--ctx N] [--name S]
+/// [--queue N]`: the OpenAI-compatible server. The checkpoint directory provides the tokenizer
+/// and the DSpark draft (used unless `--no-draft`).
+fn cmd_serve(a: &[String]) -> Result<bool> {
+    let bad = |m: String| astral_core::AstralError::Invalid(m);
+    let gguf = a.first().ok_or_else(|| bad("serve: missing GGUF path".into()))?.clone();
+    let (mut ckpt, mut draft, mut k, mut host, mut port, mut ctx, mut name, mut queue) = (None::<String>, true, 6usize, "0.0.0.0".to_string(), 8000u16, 8192u32, "inkling-2-mini".to_string(), 64usize);
+    let mut i = 1;
+    while i < a.len() {
+        let val = |i: usize| a.get(i + 1).cloned().ok_or_else(|| bad(format!("serve: {} needs a value", a[i])));
+        match a[i].as_str() {
+            "--checkpoint" => {
+                ckpt = Some(val(i)?);
+                i += 1;
+            }
+            "--no-draft" => draft = false,
+            "--k" => {
+                k = val(i)?.parse().map_err(|_| bad("serve: --k must be a number".into()))?;
+                i += 1;
+            }
+            "--host" => {
+                host = val(i)?;
+                i += 1;
+            }
+            "--port" => {
+                port = val(i)?.parse().map_err(|_| bad("serve: --port must be a number".into()))?;
+                i += 1;
+            }
+            "--ctx" => {
+                ctx = val(i)?.parse().map_err(|_| bad("serve: --ctx must be a number".into()))?;
+                i += 1;
+            }
+            "--name" => {
+                name = val(i)?;
+                i += 1;
+            }
+            "--queue" => {
+                queue = val(i)?.parse().map_err(|_| bad("serve: --queue must be a number".into()))?;
+                i += 1;
+            }
+            o => return Err(bad(format!("serve: unknown option {o}"))),
+        }
+        i += 1;
+    }
+    let ckpt = std::path::PathBuf::from(ckpt.ok_or_else(|| bad("serve: --checkpoint <dir> (tokenizer and draft) is required".into()))?);
+    let engine = astral_api::engine::EngineConfig { gguf: gguf.into(), draft: draft.then(|| ckpt.clone()), k, ctx, queue };
+    astral_api::serve(astral_api::ServerConfig { engine, tokenizer_dir: ckpt, host, port, model_name: name })?;
+    Ok(true)
+}
+
+/// Token ids from the arguments, or from a file of whitespace-separated ids (`@path`).
+fn read_ids(ids: &[String]) -> Result<Vec<u32>> {
+    let words: Vec<String> = match ids {
+        [one] if one.starts_with('@') => std::fs::read_to_string(&one[1..])?.split_whitespace().map(str::to_string).collect(),
+        _ => ids.to_vec(),
+    };
+    let v: Vec<u32> = words.iter().filter_map(|t| t.trim_matches(|c| c == ',' || c == '[' || c == ']').parse().ok()).collect();
+    if v.is_empty() {
+        return Err(astral_core::AstralError::Invalid("no token ids".into()));
+    }
+    Ok(v)
+}
+
+/// `spec-generate <gguf> <native checkpoint dir> <k> <n> <ids... | @file>`: greedy generation
+/// with DSpark speculative decoding (k drafts verified per round), then the same with plain
+/// decoding for comparison (skipped with ASTRAL_SPEC_NO_CHECK=1).
+fn cmd_spec_generate(path: &str, dir: &str, k: &str, n: &str, ids: &[String]) -> Result<bool> {
+    let bad = |m: &str| astral_core::AstralError::Invalid(m.into());
+    let k: usize = k.parse().map_err(|_| bad("k must be a number"))?;
+    let n: usize = n.parse().map_err(|_| bad("n must be a number"))?;
+    let prompt = read_ids(ids)?;
+    let cap = std::env::var("ASTRAL_CTX").ok().and_then(|v| v.parse().ok()).unwrap_or((prompt.len() + n + 64).min(8192) as u32);
+    let mut s = load_session(path, cap)?;
+    let t = std::time::Instant::now();
+    s.enable_spec(std::path::Path::new(dir), k)?;
+    // Diagnostics: accept against a fixed continuation (e.g. another engine's output).
+    if let Ok(f) = std::env::var("ASTRAL_SPEC_FORCE") {
+        let cont = read_ids(&[f])?;
+        let mut seq = prompt.clone();
+        seq.extend(&cont);
+        s.spec_force(&seq)?;
+        eprintln!("forced continuation: {} tokens", cont.len());
+    }
+    eprintln!("draft loaded in {:.1} s", t.elapsed().as_secs_f64());
+    let reps: usize = std::env::var("ASTRAL_SPEC_REPS").ok().and_then(|v| v.parse().ok()).unwrap_or(2);
+    let mut spec_out = Vec::new();
+    for rep in 0..reps {
+        s.reset()?;
+        let t0 = std::time::Instant::now();
+        let first = s.prefill(&prompt)?;
+        let tp = t0.elapsed().as_secs_f64();
+        s.reset()?;
+        let before = s.spec_stats().unwrap_or_default();
+        let t1 = std::time::Instant::now();
+        spec_out = s.spec_generate(&prompt, n)?;
+        let total = t1.elapsed().as_secs_f64();
+        let st = s.spec_stats().unwrap_or_default();
+        let (rounds, acc) = (st.rounds - before.rounds, st.accepted - before.accepted);
+        let decode = (total - tp).max(1e-9);
+        println!(
+            "run {rep}: prefill {} tok {:.1} ms; decode {} tok in {:.3} s = {:.1} tok/s; {rounds} rounds, {:.2} tokens/round, acceptance {:.1}% of {k} drafts",
+            prompt.len(),
+            tp * 1e3,
+            spec_out.len() - 1,
+            decode,
+            (spec_out.len() - 1) as f64 / decode,
+            (spec_out.len() - 1) as f64 / rounds.max(1) as f64,
+            100.0 * acc as f64 / (rounds.max(1) * k as u64) as f64
+        );
+        let _ = first;
+    }
+    println!("spec tokens: {spec_out:?}");
+    if std::env::var_os("ASTRAL_SPEC_NO_CHECK").is_none() {
+        s.reset()?;
+        let mut next = s.prefill(&prompt)?;
+        let mut plain = vec![next];
+        let t1 = std::time::Instant::now();
+        for _ in 1..n {
+            next = s.step(next)?;
+            plain.push(next);
+        }
+        let td = t1.elapsed().as_secs_f64();
+        let same = spec_out.iter().zip(&plain).take_while(|(a, b)| a == b).count();
+        println!("plain decode {} tok at {:.1} tok/s; spec output equals plain greedy for the first {same} / {} tokens", n - 1, (n - 1) as f64 / td.max(1e-9), plain.len());
+        // Teacher-forced check: plain decode along the spec tokens; at every position the spec
+        // token must be the plain argmax, up to near-ties (logit gap below the batched-vs-decode
+        // numerical noise).
+        s.reset()?;
+        let mut pred = s.prefill(&prompt)?;
+        let mut logits = s.logits()?;
+        let (mut miss, mut worst) = (0usize, 0f32);
+        for (i, &t) in spec_out.iter().enumerate() {
+            if t != pred {
+                miss += 1;
+                worst = worst.max(logits[pred as usize] - logits[t as usize]);
+            }
+            if i + 1 < spec_out.len() {
+                pred = s.step(t)?;
+                logits = s.logits()?;
+            }
+        }
+        println!("teacher-forced: spec token != plain argmax at {miss} / {} positions, largest logit gap {worst:.3}", spec_out.len());
+    }
+    Ok(true)
+}
+
+fn cmd_kbench_mxfp4(a: &[String], mma: bool) -> Result<bool> {
+    let p = |i: usize, d: usize| a.get(i).and_then(|v| v.parse().ok()).unwrap_or(d);
+    let (n, k, b, iters) = (p(0, 16384), p(1, 8192), p(2, 1), p(3, 50));
+    let ctx = astral_gpu::Context::new(astral_gpu::Device::get(0)?)?;
+    let (name, r) =
+        if mma { ("mxfp4 mma", astral_testing::kbench::gemm_mxfp4_mma(&ctx, n, k, b, iters as u32, false)?) } else { ("mxfp4 gemv", astral_testing::kbench::gemv_mxfp4(&ctx, n, k, b, iters as u32)?) };
+    println!("{name} n{n} k{k} b{b}: {:.1} us/call, {:.0} GB/s of weights", r.us_per_call, r.weight_gbps);
+    Ok(true)
+}
+
+fn cmd_kbench_mxfp4_f16(a: &[String]) -> Result<bool> {
+    let p = |i: usize, d: usize| a.get(i).and_then(|v| v.parse().ok()).unwrap_or(d);
+    let (n, k, b, iters) = (p(0, 16384), p(1, 8192), p(2, 1), p(3, 50));
+    let ctx = astral_gpu::Context::new(astral_gpu::Device::get(0)?)?;
+    let r = astral_testing::kbench::gemm_mxfp4_mma(&ctx, n, k, b, iters as u32, true)?;
+    println!("mxfp4 mma f16x n{n} k{k} b{b}: {:.1} us/call, {:.0} GB/s of weights", r.us_per_call, r.weight_gbps);
+    Ok(true)
+}

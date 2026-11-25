@@ -1,0 +1,90 @@
+{
+  "cuda_driver_api": "13.0",
+  "nvml_driver_version": "580.105.08",
+  "kernels_built_for": [
+    "80"
+  ],
+  "nvcc": "Cuda compilation tools, release 12.8, V12.8.93",
+  "devices": [
+    {
+      "ordinal": 0,
+      "name": "NVIDIA A100-PCIE-40GB",
+      "uuid": "GPU-5cbb8bf4-c8e7-d881-b1a5-199823eb4166",
+      "capabilities": {
+        "compute_capability": [
+          8,
+          0
+        ],
+        "profile": "sm80",
+        "kernel_family": "f80",
+        "validation": "logic",
+        "isa": {
+          "cp_async": true,
+          "wgmma": false,
+          "tma": false,
+          "tcgen05": false,
+          "tmem": false,
+          "clusters": false,
+          "int8_tensor_core": true,
+          "fp8_tensor_core": false,
+          "fp4": "none",
+          "low_precision_formats": []
+        },
+        "sm_count": 108,
+        "warp_size": 32,
+        "max_threads_per_block": 1024,
+        "max_threads_per_sm": 2048,
+        "regs_per_sm": 65536,
+        "smem_per_sm_bytes": 167936,
+        "smem_per_block_optin_bytes": 166912,
+        "l2_bytes": 41943040,
+        "sm_clock_mhz": 1410,
+        "mem_clock_mhz": 1215,
+        "mem_bus_width_bits": 5120,
+        "total_mem_bytes": 42405855232,
+        "memory_model": "discrete",
+        "ecc_enabled": true,
+        "vmm_supported": true,
+        "memory_pools_supported": true,
+        "managed_memory": true,
+        "pageable_memory_access": true,
+        "concurrent_managed_access": true,
+        "cluster_launch": false,
+        "dram_bandwidth_gbps_derived": 1555.2
+      },
+      "free_mem_bytes": 6523191296,
+      "nvml": {
+        "pcie_gen_current": 4,
+        "pcie_gen_max": 4,
+        "pcie_width_current": 16,
+        "pcie_width_max": 16,
+        "power_limit_w": 250.0,
+        "sm_clock_mhz": 1410,
+        "mem_clock_mhz": 1215,
+        "max_sm_clock_mhz": 1410,
+        "max_mem_clock_mhz": 1215,
+        "nvlink_active_links": 0
+      },
+      "memory_budget": {
+        "usable_bytes": 5870872166,
+        "source": "cuMemGetInfo",
+        "reserve_bytes": 0,
+        "utilization": 0.9
+      },
+      "bench": {
+        "buffer_bytes": 1073741824,
+        "iterations": 20,
+        "read_gbps_best": 1491.5732619574917,
+        "read_gbps_median": 1487.341816307027,
+        "copy_gbps_best": 1354.7493283732474,
+        "dma_dtod_gbps_best": 1376.0840229501648,
+        "read_fraction_of_derived": 0.959087745600239,
+        "warnings": [],
+        "from_cache": false
+      },
+      "notes": [
+        "dram_bandwidth_gbps_derived assumes double data rate; trust the measured bench figure"
+      ]
+    }
+  ]
+}

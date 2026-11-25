@@ -1,0 +1,31 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2021"
+license = "AGPL-3.0-only"
+authors = ["Synthetic Minds LTD"]
+
+[workspace.dependencies]
+libloading = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+astral-core = { path = "crates/core" }
+astral-gpu = { path = "crates/gpu" }
+astral-mem = { path = "crates/mem" }
+astral-kernels-src = { path = "crates/kernels-src" }
+astral-kernels = { path = "crates/kernels" }
+astral-hw = { path = "crates/hw" }
+astral-testing = { path = "crates/testing" }
+astral-quant = { path = "crates/quant" }
+astral-loader = { path = "crates/loader" }
+astral-model = { path = "crates/model" }
+astral-api = { path = "crates/api" }
+
+[profile.release]
+debug = 1
+codegen-units = 16
+lto = "thin"

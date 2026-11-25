@@ -1,0 +1,57 @@
+
+==========
+== CUDA ==
+==========
+
+CUDA Version 13.0.3
+
+Container image Copyright (c) 2016-2023, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
+This container image and its contents are governed by the NVIDIA Deep Learning Container License.
+By pulling and using the container, you accept the terms and conditions of this license:
+https://developer.nvidia.com/ngc/nvidia-deep-learning-container-license
+
+A copy of this license is made available in this container at /NGC-DL-CONTAINER-LICENSE for your convenience.
+
+/sgl-workspace/sglang/python/sglang/launch_server.py:71: UserWarning: 'python -m sglang.launch_server' is still supported, but 'sglang serve' is the recommended entrypoint.
+  Example: sglang serve --model-path <model> [options]
+  warnings.warn(
+[2026-11-24 13:33:57] kill_process_tree called: parent_pid=1, include_parent=False, pid=1
+Traceback (most recent call last):
+  File "/opt/sglang/lib/python3.12/site-packages/transformers/models/auto/configuration_auto.py", line 428, in from_pretrained
+    config_class = CONFIG_MAPPING[config_dict["model_type"]]
+                   ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/sglang/lib/python3.12/site-packages/transformers/models/auto/configuration_auto.py", line 107, in __getitem__
+    raise KeyError(key)
+KeyError: 'inkling2_loop'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/sgl-workspace/sglang/python/sglang/launch_server.py", line 84, in <module>
+    run_server(server_args)
+  File "/sgl-workspace/sglang/python/sglang/launch_server.py", line 29, in run_server
+    server_args.resolve_once()
+  File "/sgl-workspace/sglang/python/sglang/srt/server_args.py", line 277, in resolve_once
+    run_resolution_pipeline(self)
+  File "/sgl-workspace/sglang/python/sglang/srt/arg_groups/pipeline.py", line 122, in run_resolution_pipeline
+    apply_muse_spark_env_defaults(server_args)
+  File "/sgl-workspace/sglang/python/sglang/srt/arg_groups/muse_spark_hook.py", line 43, in apply_muse_spark_env_defaults
+    hf_config = get_config(
+                ^^^^^^^^^^^
+  File "/sgl-workspace/sglang/python/sglang/srt/utils/common.py", line 4570, in wrapper
+    result = func(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^
+  File "/sgl-workspace/sglang/python/sglang/srt/utils/hf_transformers/config.py", line 379, in get_config
+    config = parser.parse(
+             ^^^^^^^^^^^^^
+  File "/sgl-workspace/sglang/python/sglang/srt/utils/hf_transformers/config.py", line 228, in parse
+    config = AutoConfig.from_pretrained(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/sglang/lib/python3.12/site-packages/transformers/models/auto/configuration_auto.py", line 430, in from_pretrained
+    raise ValueError(
+ValueError: The checkpoint you are trying to load has model type `inkling2_loop` but Transformers does not recognize this architecture. This could be because of an issue with the checkpoint, or because your version of Transformers is out of date.
+
+You can update Transformers with the command `pip install --upgrade transformers`. If this does not work, and the checkpoint is very new, then there may not be a release version that supports this model yet. In this case, you can get the most up-to-date code by installing Transformers from source with the command `pip install git+https://github.com/huggingface/transformers.git`

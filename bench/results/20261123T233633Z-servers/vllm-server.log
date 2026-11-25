@@ -1,0 +1,82 @@
+(APIServer pid=1) INFO 11-23 23:36:46 [startup.py:38] 
+(APIServer pid=1) INFO 11-23 23:36:46 [startup.py:38]        █     █     █▄   ▄█
+(APIServer pid=1) INFO 11-23 23:36:46 [startup.py:38]  ▄▄ ▄█ █     █     █ ▀▄▀ █  version 0.34.0rc1.dev1163+geff4de9be
+(APIServer pid=1) INFO 11-23 23:36:46 [startup.py:38]   █▄█▀ █     █     █     █  model   /models/Inkling-2-Mini
+(APIServer pid=1) INFO 11-23 23:36:46 [startup.py:38]    ▀▀  ▀▀▀▀▀ ▀▀▀▀▀ ▀     ▀
+(APIServer pid=1) INFO 11-23 23:36:46 [startup.py:38] 
+(APIServer pid=1) INFO 11-23 23:36:46 [startup.py:96] non-default args: {'model_tag': '/models/Inkling-2-Mini', 'model': '/models/Inkling-2-Mini', 'max_model_len': 8192, 'served_model_name': ['inkling'], 'gpu_memory_utilization': 0.9}
+(APIServer pid=1) INFO 11-23 23:36:55 [model.py:772] Resolved architecture: Inkling2LoopForConditionalGeneration
+(APIServer pid=1) INFO 11-23 23:36:55 [model.py:822] Defaulting to tokenizer_mode='inkling' for Inkling2LoopForConditionalGeneration
+(APIServer pid=1) INFO 11-23 23:36:55 [model.py:2388] Using max model len 8192
+Traceback (most recent call last):
+  File "/usr/local/bin/vllm", line 10, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "/usr/local/lib/python3.14/dist-packages/vllm/entrypoints/cli/main.py", line 117, in main
+    args.dispatch_function(args)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/usr/local/lib/python3.14/dist-packages/vllm/entrypoints/cli/serve.py", line 156, in cmd
+    uvloop.run(run_server(args))
+    ~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.14/dist-packages/uvloop/__init__.py", line 96, in run
+    return __asyncio.run(
+           ~~~~~~~~~~~~~^
+        wrapper(),
+        ^^^^^^^^^^
+    ...<2 lines>...
+        **run_kwargs
+        ^^^^^^^^^^^^
+    )
+    ^
+  File "/usr/lib/python3.14/asyncio/runners.py", line 205, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/usr/lib/python3.14/asyncio/runners.py", line 128, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "uvloop/loop.pyx", line 1515, in uvloop.loop.Loop.run_until_complete
+  File "/usr/local/lib/python3.14/dist-packages/uvloop/__init__.py", line 48, in wrapper
+    return await main
+           ^^^^^^^^^^
+  File "/usr/local/lib/python3.14/dist-packages/vllm/entrypoints/launchers/api_server/entry.py", line 176, in run_server
+    await run_server_worker(listen_address, sock, args, **uvicorn_kwargs)
+  File "/usr/local/lib/python3.14/dist-packages/vllm/entrypoints/launchers/api_server/entry.py", line 190, in run_server_worker
+    async with build_async_engine_client(
+               ~~~~~~~~~~~~~~~~~~~~~~~~~^
+        args,
+        ^^^^^
+        client_config=client_config,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ) as engine_client:
+    ^
+  File "/usr/lib/python3.14/contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.14/dist-packages/vllm/entrypoints/launchers/api_server/entry.py", line 60, in build_async_engine_client
+    async with build_async_engine_client_from_engine_args(
+               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        engine_args,
+        ^^^^^^^^^^^^
+        usage_context=usage_context,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        client_config=client_config,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ) as engine:
+    ^
+  File "/usr/lib/python3.14/contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.14/dist-packages/vllm/entrypoints/launchers/api_server/entry.py", line 82, in build_async_engine_client_from_engine_args
+    vllm_config = engine_args.create_engine_config(usage_context=usage_context)
+  File "/usr/local/lib/python3.14/dist-packages/vllm/engine/arg_utils.py", line 2910, in create_engine_config
+    config = VllmConfig(
+        model_config=model_config,
+    ...<30 lines>...
+        shutdown_timeout=self.shutdown_timeout,
+    )
+  File "/usr/local/lib/python3.14/dist-packages/pydantic/_internal/_dataclasses.py", line 121, in __init__
+    s.__pydantic_validator__.validate_python(ArgsKwargs(args, kwargs), self_instance=s)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+pydantic_core._pydantic_core.ValidationError: 1 validation error for VllmConfig
+  Value error, The quantization method inkling2 is not supported for the current GPU. Minimum capability: 90. Current capability: 80. [type=value_error, input_value=ArgsKwargs((), {'model_co... 'shutdown_timeout': 0}), input_type=ArgsKwargs]
+    For further information visit https://errors.pydantic.dev/2.14/v/value_error

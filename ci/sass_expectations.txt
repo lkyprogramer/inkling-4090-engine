@@ -1,0 +1,13 @@
+# <kernel> <arch|*> <regex that must appear in the kernel's SASS on that arch>
+# Add one line per architecture-specific instruction a kernel family relies on, e.g.
+#   astral_nvfp4_moe_gemm 120a  OMMA|QMMA      (block-scaled MMA on sm_120a)
+#   astral_nvfp4_moe_gemm 100a  UTCQMMA|UTCOMMA (tcgen05 on sm_100a)
+# P0 kernels are portable; these lines check the reductions and vector loads are as intended.
+astral_rmsnorm_f32   *  SHFL\.BFLY
+astral_read_bw_f32x4 *  LDG\.E\.128
+astral_gemv_mxfp4_f32_b1 *  LDG\.E\.128
+astral_gemv_mxfp4_f32_b1 *  LDS\.128
+astral_gemm_mxfp4_mma_f32_w4u8t1024 *  HMMA\.16816\.F32
+astral_gemm_mxfp4_mma_f16x_w4u8t1024 *  HMMA\.16816\.F32
+astral_gemm_mxfp4_mma_f16x_w8u8t1024 *  HMMA\.16816\.F32
+astral_gemm_mxfp4_mma_f16x_w8u8t1024 *  LDGSTS

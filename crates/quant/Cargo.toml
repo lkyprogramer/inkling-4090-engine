@@ -1,0 +1,10 @@
+[package]
+name = "astral-quant"
+description = "Astral: GGML quantisation types and CPU reference dequantisation."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+astral-core.workspace = true

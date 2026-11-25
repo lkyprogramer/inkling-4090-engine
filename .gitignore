@@ -1,0 +1,7 @@
+/target
+*.fatbin
+*.cubin
+.DS_Store
+__pycache__/
+*.pyc
+*.ids.json

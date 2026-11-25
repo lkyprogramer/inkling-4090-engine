@@ -1,0 +1,12 @@
+0.00.991.951 W load: special_eos_id is not in special_eog_ids - the tokenizer config may be incorrect
+0.05.210.848 I cmn          init: llama threadpool init, n_threads = 30
+0.05.429.656 I 
+0.05.429.792 I system_info: n_threads = 30 (n_threads_batch = 30) / 30 | CUDA : ARCHS = 800 | USE_GRAPHS = 1 | FA_QUANTS = q4_0-q4_0,q8_0-q8_0,f16-f16,bf16-bf16,f8_e4m3-f8_e4m3 | CPU : SSE3 = 1 | SSSE3 = 1 | AVX = 1 | AVX2 = 1 | F16C = 1 | FMA = 1 | BMI2 = 1 | LLAMAFILE = 1 | OPENMP = 1 | REPACK = 1 | 
+0.05.429.890 I perplexity: saving all logits to /home/ubuntu/astral-work/results/20261123T224727Z-golden/kld_base_c512x8.bin
+0.05.429.901 I perplexity: tokenizing the input ..
+0.05.947.263 I perplexity: tokenization took 517.352 ms
+0.05.947.420 I perplexity: calculating perplexity over 8 chunks, n_ctx=512, batch_size=2048, n_seq=4
+0.08.687.604 I perplexity: 2.62 seconds per pass - ETA 0.08 minutes
+[1]1.4331,[2]3.2713,[3]2.8659,[4]2.8877,[5]3.5610,[6]3.4975,[7]3.6595,[8]3.5366,
+0.11.445.605 I Final estimate: PPL = 3.5366 +/- 0.18304
+

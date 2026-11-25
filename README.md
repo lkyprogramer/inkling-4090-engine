@@ -1,13 +1,132 @@
+<!-- markdownlint-disable MD001 MD041 -->
 <p align="center">
-  <a href="https://www.syntheticmindslab.com/astral">
-    <img src="./HX2L3bAXQAAPMhp.jpeg" alt="Astral Inference Server" width="100%">
-  </a>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logos/synthetic-minds-logo-dark.png">
+    <img alt="Synthetic Minds" src="docs/assets/logos/synthetic-minds-logo-light.png" width=50%>
+  </picture>
 </p>
 
-# Astral-Inference-Server
+<h1 align="center">Astral Inference Server</h1>
 
-A high-throughput and memory-efficient inference and serving engine for LLMs on NVIDIA GPUs. A fast, CUDA-kernel-optimized, open-source production inference server, OpenAI-compatible. Runs Qwen 3.8, Inkling 2 Mini and more.
+<h3 align="center">
+Fast, lean LLM inference and serving in Rust and CUDA
+</h3>
 
-> **Status: in development.** Astral is not available to download yet. We aim to release the first version in December 2026.
->
-> **Join the beta today:** https://www.syntheticmindslab.com/astral
+<p align="center">
+| <a href="https://www.syntheticmindslab.com/astral"><b>Website</b></a> | <a href="docs/README.md"><b>Documentation</b></a> | <a href="docs/getting_started/quickstart.md"><b>Quickstart</b></a> | <a href="docs/benchmarks/inkling2_mini.md"><b>Benchmarks</b></a> | <a href="docs/models/supported_models.md"><b>Supported Models</b></a> | <a href="CONTRIBUTING.md"><b>Contributing</b></a> |
+</p>
+
+🔥 **New:** speculative decoding with the official Inkling 2 Mini DSpark draft and an adaptive draft length. On one H100, Astral decodes **1.32×** faster than vLLM without a draft and **1.11×** faster with one. See the [benchmarks](docs/benchmarks/inkling2_mini.md).
+
+> **Status: in development.** The first release is planned for December 2026. **Join the beta:** https://www.syntheticmindslab.com/astral
+
+---
+
+## About
+
+Astral Inference Server is an inference engine and OpenAI-compatible server for large language models. The host side is Rust and every kernel is hand-written CUDA. It ships as a single binary with no Python runtime.
+
+Astral Inference Server is developed by [Synthetic Minds LTD](#contact-us).
+
+Astral is fast with:
+
+- Hand-written CUDA kernels for every operator, verified layer by layer against a reference implementation
+- CUDA graphs for every decode step and every speculative round, with **programmatic dependent launch** overlapping kernel launches on Hopper
+- Quantised weights end to end: Q8_0, NVFP4 and MXFP4 GEMVs, with int8 **tensor-core GEMVs** for small batches and wgmma GEMMs for prefill
+- Fused kernels: depth-mix + RMSNorm + quantisation, attention merge + output gate, router GEMV + top-k, batched loop controllers
+- **Speculative decoding** with the model's own DSpark draft, GPU-side acceptance, short-conv state rollback and an **adaptive draft length**
+- Grouped MoE kernels that read each used expert once per batch
+
+Astral is flexible and easy to use with:
+
+- An OpenAI-compatible API server: `/v1/completions`, `/v1/chat/completions`, streaming, stop strings, reasoning output and tool calls
+- The checkpoint's own tokenizer and chat template, matching reference token ids exactly
+- GGUF and safetensors loading
+- A bounded request queue with cancel-on-disconnect
+
+Astral supports:
+
+- Inkling 2 Mini (GGUF `UD-Q4_K_XL`), with or without its DSpark draft
+- Qwen3.8-27B (MXFP4 safetensors), from the command line
+
+Find the full list of supported models [here](docs/models/supported_models.md).
+
+## Performance
+
+Single-stream decode speed on an H100 PCIe 80 GB, averaged over 32 prompts and measured through each engine's OpenAI-compatible server:
+
+<p align="center">
+  <img alt="Inkling 2 Mini decode speed relative to vLLM" src="bench/charts/astral_vs_vllm_python.png" width=70%>
+</p>
+
+| Inkling 2 Mini | vLLM | SGLang | **Astral** |
+|---|---|---|---|
+| Without MTP | 130.2 tok/s | 135.6 tok/s | **172.0 tok/s (1.32×)** |
+| With MTP (DSpark draft) | 209.6 tok/s | 205.9 tok/s | **233.3 tok/s (1.11×)** |
+
+The methodology, per-prompt-set results and the vLLM Rust-frontend comparison are in the [benchmark report](docs/benchmarks/inkling2_mini.md).
+
+## Getting Started
+
+Build Astral from source (Linux, an NVIDIA driver with CUDA 12, `nvcc` 12.8+ and a recent stable Rust toolchain):
+
+```bash
+ASTRAL_CUDA_ARCHS=80,90a cargo build --release
+./target/release/astral selftest      # kernel self-tests on your GPU
+```
+
+Serve Inkling 2 Mini with its DSpark draft:
+
+```bash
+./target/release/astral serve Inkling-2-Mini-UD-Q4_K_XL.gguf --checkpoint Inkling-2-Mini/
+```
+
+Visit our [documentation](docs/README.md) to learn more.
+
+- [Installation](docs/getting_started/installation.md)
+- [Quickstart](docs/getting_started/quickstart.md)
+- [Supported Models](docs/models/supported_models.md)
+
+## Editions
+
+| | Developer | Enterprise |
+|---|---|---|
+| Licence | AGPL-3.0, free | Commercial |
+| Who it is for | Individuals, researchers, and organisations running it internally | Organisations deploying at scale |
+| Deployment | One node (one GPU today; multiple GPUs on one node planned) | Multi-node and disaggregated serving |
+| Engine, kernels, OpenAI-compatible server, speculative decoding | ✅ | ✅ |
+| Custom deployments | — | ✅ |
+| Support | Community (GitHub) | Commercial support |
+
+This repository is the Developer edition. A commercial licence is also available for the Developer edition, for organisations that cannot adopt AGPL-3.0 or that embed or host modified versions privately. For Enterprise, visit [syntheticmindslab.com](https://www.syntheticmindslab.com/astral).
+
+## Contributing
+
+We welcome and value any contributions and collaborations.
+Please check out [Contributing to Astral Inference Server](CONTRIBUTING.md) for how to get involved.
+
+## Citation
+
+If you use Astral Inference Server for your research, please cite it:
+
+```bibtex
+@software{astral2026,
+  title  = {Astral Inference Server: Fast, Lean LLM Inference and Serving in Rust and CUDA},
+  author = {{Synthetic Minds LTD}},
+  year   = {2026},
+  note   = {Version 0.0.1}
+}
+```
+
+## Contact Us
+
+<!-- --8<-- [start:contact-us] -->
+- For technical questions and feature requests, please use GitHub [Issues](../../issues)
+- For discussions with other users, please use GitHub [Discussions](../../discussions)
+- For coordinated security disclosures, please follow our [security policy](SECURITY.md)
+- For commercial licensing and the beta programme, please visit [syntheticmindslab.com](https://www.syntheticmindslab.com/astral)
+<!-- --8<-- [end:contact-us] -->
+
+## License
+
+Copyright (c) 2026 Synthetic Minds LTD. Astral Inference Server is licensed under the GNU Affero General Public License v3.0 only (`AGPL-3.0-only`); see [LICENSE](LICENSE) and [NOTICE](NOTICE). Commercial licences, for use without the AGPL obligations, are available from Synthetic Minds LTD.

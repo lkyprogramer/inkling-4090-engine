@@ -1,0 +1,10 @@
+[package]
+name = "astral-core"
+description = "Astral: shared types (errors, dtypes, architecture profiles). No GPU dependency."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+serde.workspace = true

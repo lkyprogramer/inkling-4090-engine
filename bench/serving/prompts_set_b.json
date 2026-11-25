@@ -1,0 +1,18 @@
+[
+ "Write a Go HTTP server with two JSON endpoints and graceful shutdown.",
+ "Explain how public-key cryptography works, with RSA as the example, for a curious teenager.",
+ "Draft an email to a landlord asking to fix a broken heater, polite but firm.",
+ "Write a Python class implementing an LRU cache with O(1) get and put, plus tests.",
+ "What were the main causes of World War I? Give a balanced overview.",
+ "Write a haiku sequence (six haiku) about autumn in a city.",
+ "Explain the CAP theorem and give real database examples for each trade-off.",
+ "Convert this idea into a product spec: an app that reminds people to water their plants.",
+ "Write a TypeScript function that deep-merges two objects, handling arrays and nulls.",
+ "Explain photosynthesis in detail, including the light and dark reactions.",
+ "Write a detailed workout plan for a beginner for four weeks, three days per week.",
+ "Explain what a Fourier transform is and give an intuitive example with sound.",
+ "Write a Dockerfile and docker-compose file for a Flask app with Postgres and Redis.",
+ "Tell a fairy tale about a fox who learns to read.",
+ "Explain how Git branching and rebasing work, with command examples.",
+ "Write C++ code for Dijkstra's algorithm using a priority queue, with comments."
+]

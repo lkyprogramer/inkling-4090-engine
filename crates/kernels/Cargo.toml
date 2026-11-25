@@ -1,0 +1,13 @@
+[package]
+name = "astral-kernels"
+description = "Astral: kernel registry, typed launch wrappers and CPU reference implementations."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+astral-core.workspace = true
+astral-gpu.workspace = true
+astral-kernels-src.workspace = true
+astral-quant.workspace = true

@@ -1,0 +1,37 @@
+Astral Inference Server
+Copyright (c) 2026 Synthetic Minds LTD
+
+This program is free software: you can redistribute it and/or modify it under the
+terms of the GNU Affero General Public License as published by the Free Software
+Foundation, version 3 (SPDX: AGPL-3.0-only). See the LICENSE file for the full text.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE. See the GNU Affero General Public License for more details.
+
+Network use (AGPL-3.0 section 13): if you modify Astral and let users interact with
+it over a network, you must offer those users the Corresponding Source of your
+modified version.
+
+Commercial licences, for use without the AGPL-3.0 obligations, are available from
+Synthetic Minds LTD.
+
+-------------------------------------------------------------------------------
+Third-party components
+-------------------------------------------------------------------------------
+Rust dependencies are fetched by Cargo and keep their own licences:
+  libloading     ISC
+  serde          MIT OR Apache-2.0
+  serde_json     MIT OR Apache-2.0
+  core_affinity  MIT OR Apache-2.0
+  tokenizers     Apache-2.0 (Hugging Face), with Oniguruma (BSD-2-Clause)
+
+The NVIDIA CUDA driver (libcuda) and NVML (libnvidia-ml) are loaded at runtime from
+the host system and are not distributed with Astral.
+
+Quantised weight formats (Q8_0, NVFP4, MXFP4 block layouts) follow the GGML file
+format of llama.cpp / ggml, Copyright (c) 2023-2026 The ggml authors, MIT License.
+Astral's Inkling 2 Mini forward pass is verified against llama.cpp's implementation.
+
+The Inkling 2 Mini DSpark draft follows the published model definition in vLLM,
+Copyright contributors to the vLLM project, Apache License 2.0.

@@ -1,0 +1,22 @@
+[package]
+name = "astral-cli"
+description = "Astral: the `astral` command-line tool."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "astral"
+path = "src/main.rs"
+
+[dependencies]
+astral-core.workspace = true
+astral-gpu.workspace = true
+astral-kernels.workspace = true
+astral-hw.workspace = true
+astral-testing.workspace = true
+astral-loader.workspace = true
+astral-model.workspace = true
+astral-api.workspace = true
+serde_json.workspace = true

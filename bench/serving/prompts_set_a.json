@@ -1,0 +1,18 @@
+[
+ "Explain how a hash map works internally, including collision handling and resizing. Include a short Python example.",
+ "Write a short story (about 500 words) about a lighthouse keeper who finds a message in a bottle.",
+ "Summarize the main causes and consequences of the French Revolution for a high-school student.",
+ "Write a Rust function that parses one CSV line, handling quoted fields with embedded commas and escaped quotes. Add unit tests.",
+ "Write a Python script that downloads a web page, extracts all links and prints them sorted and deduplicated.",
+ "Explain the difference between TCP and UDP, with examples of protocols that use each.",
+ "Solve step by step: a train leaves at 9:40 travelling 84 km/h; a second leaves the same station at 10:10 at 105 km/h. When does the second catch up?",
+ "Write a SQL schema for a library system (books, members, loans) and three example queries.",
+ "Give me a 7-day vegetarian meal plan with a shopping list.",
+ "Explain gradient descent and backpropagation to a software engineer who knows calculus.",
+ "Write a cover letter for a junior data analyst position at a logistics company.",
+ "Implement binary search in C, iterative and recursive, and explain the edge cases.",
+ "Describe the water cycle in detail, including evaporation, condensation, precipitation and runoff.",
+ "Write a bash script that backs up a directory to a timestamped tar.gz and keeps only the last 7 backups.",
+ "Compare the economic policies of Keynesian and classical economics in a structured way.",
+ "Write a JavaScript React component for a todo list with add, toggle and delete, using hooks."
+]

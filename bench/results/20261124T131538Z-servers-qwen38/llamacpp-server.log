@@ -1,0 +1,1482 @@
+0.00.132.988 I srv  llama_server: initializing ...
+0.00.133.012 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.135.077 W srv  server_setup: security: no API key is set and CORS allows all origins (see https://github.com/ggml-org/llama.cpp/pull/25655)
+0.00.141.391 I srv    load_model: loading model '/home/ubuntu/astral-work/models/qwen-gguf/Qwen3.8-27B-UD-Q4_K_XL.gguf'
+0.01.129.309 W model has unused tensor blk.64.attn_norm.weight (size = 20480 bytes) -- ignoring
+0.01.129.325 W model has unused tensor blk.64.post_attention_norm.weight (size = 20480 bytes) -- ignoring
+0.01.129.339 W model has unused tensor blk.64.attn_q.weight (size = 51609600 bytes) -- ignoring
+0.01.129.344 W model has unused tensor blk.64.attn_k.weight (size = 5570560 bytes) -- ignoring
+0.01.129.349 W model has unused tensor blk.64.attn_v.weight (size = 5570560 bytes) -- ignoring
+0.01.129.366 W model has unused tensor blk.64.attn_output.weight (size = 25804800 bytes) -- ignoring
+0.01.129.372 W model has unused tensor blk.64.attn_q_norm.weight (size = 1024 bytes) -- ignoring
+0.01.129.377 W model has unused tensor blk.64.attn_k_norm.weight (size = 1024 bytes) -- ignoring
+0.01.129.382 W model has unused tensor blk.64.ffn_gate.weight (size = 73113600 bytes) -- ignoring
+0.01.129.386 W model has unused tensor blk.64.ffn_down.weight (size = 73113600 bytes) -- ignoring
+0.01.129.391 W model has unused tensor blk.64.ffn_up.weight (size = 73113600 bytes) -- ignoring
+0.01.129.398 W model has unused tensor blk.64.nextn.eh_proj.weight (size = 43008000 bytes) -- ignoring
+0.01.129.404 W model has unused tensor blk.64.nextn.enorm.weight (size = 20480 bytes) -- ignoring
+0.01.129.409 W model has unused tensor blk.64.nextn.hnorm.weight (size = 20480 bytes) -- ignoring
+0.01.129.423 W model has unused tensor blk.64.nextn.shared_head_norm.weight (size = 20480 bytes) -- ignoring
+0.05.228.798 I cmn          init: llama threadpool init, n_threads = 30
+0.05.369.722 I srv    load_model: initializing, n_slots = 32, n_ctx_slot = 2048, kv_unified = 'false'
+0.05.375.179 W srv          init: chat template supports preserving reasoning, it is enabled by default (may use more tokens, disable via --no-reasoning-preserve)
+0.05.375.249 I srv  server_run_i: model loaded
+0.05.376.436 I srv  server_on_li: listening on http://127.0.0.1:8080
+0.21.939.499 I slot       select: id  0 | task -1 | selected slot by LRU, n_tokens = 0, t_last = -1
+0.21.939.637 I slot launch_slot_: id  0 | task 0 | processing task, is_child = 0
+0.22.353.497 I slot       select: id  1 | task -1 | selected slot by LRU, n_tokens = 0, t_last = -1
+0.22.353.581 I slot launch_slot_: id  1 | task 2 | processing task, is_child = 0
+0.22.353.586 I slot       select: id  2 | task -1 | selected slot by LRU, n_tokens = 0, t_last = -1
+0.22.353.612 I slot launch_slot_: id  2 | task 3 | processing task, is_child = 0
+0.22.353.616 I slot       select: id  3 | task -1 | selected slot by LRU, n_tokens = 0, t_last = -1
+0.22.353.646 I slot launch_slot_: id  3 | task 4 | processing task, is_child = 0
+0.22.353.649 I slot       select: id  4 | task -1 | selected slot by LRU, n_tokens = 0, t_last = -1
+0.22.353.672 I slot launch_slot_: id  4 | task 5 | processing task, is_child = 0
+0.22.353.676 I slot       select: id  5 | task -1 | selected slot by LRU, n_tokens = 0, t_last = -1
+0.22.353.697 I slot launch_slot_: id  5 | task 6 | processing task, is_child = 0
+0.22.353.700 I slot       select: id  6 | task -1 | selected slot by LRU, n_tokens = 0, t_last = -1
+0.22.353.729 I slot launch_slot_: id  6 | task 7 | processing task, is_child = 0
+0.22.353.732 I slot       select: id  7 | task -1 | selected slot by LRU, n_tokens = 0, t_last = -1
+0.22.353.751 I slot launch_slot_: id  7 | task 8 | processing task, is_child = 0
+0.25.914.366 I slot print_timing: id  5 | task 6 | prompt processing, n_tokens =    508, progress = 0.99, t =   3.29 s / 154.45 tokens per second
+0.29.215.629 I slot print_timing: id  0 | task 0 | n_gen =    100, tg =  19.66 t/s, tg_3s =  19.86 t/s
+0.29.246.266 I slot print_timing: id  1 | task 2 | n_gen =    100, tg =  29.65 t/s, tg_3s =  29.95 t/s
+0.29.246.770 I slot print_timing: id  2 | task 3 | n_gen =    100, tg =  29.67 t/s, tg_3s =  29.97 t/s
+0.29.247.230 I slot print_timing: id  3 | task 4 | n_gen =    100, tg =  29.68 t/s, tg_3s =  29.98 t/s
+0.29.247.731 I slot print_timing: id  4 | task 5 | n_gen =    100, tg =  29.70 t/s, tg_3s =  30.00 t/s
+0.29.278.204 I slot print_timing: id  5 | task 6 | n_gen =    100, tg =  32.99 t/s, tg_3s =  33.33 t/s
+0.29.309.074 I slot print_timing: id  6 | task 7 | n_gen =    101, tg =  33.01 t/s, tg_3s =  33.34 t/s
+0.29.309.565 I slot print_timing: id  7 | task 8 | n_gen =    101, tg =  33.03 t/s, tg_3s =  33.36 t/s
+0.30.061.985 I slot print_timing: id  0 | task 0 | prompt eval time =    2240.36 ms /   512 tokens (    4.38 ms per token,   228.53 tokens per second)
+0.30.061.994 I slot print_timing: id  0 | task 0 |        eval time =    5881.91 ms /   128 tokens (   46.31 ms per token,    21.59 tokens per second)
+0.30.061.994 I slot print_timing: id  0 | task 0 |       total time =    8122.27 ms /   640 tokens
+0.30.062.000 I slot print_timing: id  0 | task 0 |    graphs reused =        126
+0.30.062.000 I slot print_timing: id  0 | task 0 |   graph reallocs =          0    /     0        (same size) / (changed size)
+0.30.062.050 I slot      release: id  0 | task 0 | stop processing: n_tokens = 639, truncated = 0
+0.30.097.358 I slot print_timing: id  1 | task 2 | prompt eval time =    3292.56 ms /   512 tokens (    6.43 ms per token,   155.50 tokens per second)
+0.30.097.366 I slot print_timing: id  1 | task 2 |        eval time =    4189.99 ms /   128 tokens (   32.99 ms per token,    30.31 tokens per second)
+0.30.097.366 I slot print_timing: id  1 | task 2 |       total time =    7482.55 ms /   640 tokens
+0.30.097.367 I slot print_timing: id  1 | task 2 |    graphs reused =        126
+0.30.097.368 I slot print_timing: id  1 | task 2 |   graph reallocs =          0    /     0        (same size) / (changed size)
+0.30.097.465 I slot      release: id  1 | task 2 | stop processing: n_tokens = 639, truncated = 0
+0.30.097.967 I slot print_timing: id  2 | task 3 | prompt eval time =    3294.81 ms /   512 tokens (    6.44 ms per token,   155.40 tokens per second)
+0.30.097.974 I slot print_timing: id  2 | task 3 |        eval time =    4188.28 ms /   128 tokens (   32.98 ms per token,    30.32 tokens per second)
+0.30.097.975 I slot print_timing: id  2 | task 3 |       total time =    7483.09 ms /   640 tokens
+0.30.097.975 I slot print_timing: id  2 | task 3 |    graphs reused =        126
+0.30.097.976 I slot print_timing: id  2 | task 3 |   graph reallocs =          0    /     0        (same size) / (changed size)
+0.30.098.075 I slot      release: id  2 | task 3 | stop processing: n_tokens = 639, truncated = 0
+0.30.098.572 I slot print_timing: id  3 | task 4 | prompt eval time =    3297.06 ms /   512 tokens (    6.44 ms per token,   155.29 tokens per second)
+0.30.098.575 I slot print_timing: id  3 | task 4 |        eval time =    4186.62 ms /   128 tokens (   32.97 ms per token,    30.33 tokens per second)
+0.30.098.576 I slot print_timing: id  3 | task 4 |       total time =    7483.68 ms /   640 tokens
+0.30.098.576 I slot print_timing: id  3 | task 4 |    graphs reused =        126
+0.30.098.577 I slot print_timing: id  3 | task 4 |   graph reallocs =          0    /     0        (same size) / (changed size)
+0.30.098.660 I slot      release: id  3 | task 4 | stop processing: n_tokens = 639, truncated = 0
+0.30.099.124 I slot print_timing: id  4 | task 5 | prompt eval time =    3299.00 ms /   512 tokens (    6.44 ms per token,   155.20 tokens per second)
+0.30.099.131 I slot print_timing: id  4 | task 5 |        eval time =    4184.82 ms /   128 tokens (   32.95 ms per token,    30.35 tokens per second)
+0.30.099.132 I slot print_timing: id  4 | task 5 |       total time =    7483.82 ms /   640 tokens
+0.30.099.132 I slot print_timing: id  4 | task 5 |    graphs reused =        126
+0.30.099.133 I slot print_timing: id  4 | task 5 |   graph reallocs =          0    /     0        (same size) / (changed size)
+0.30.099.169 I slot      release: id  4 | task 5 | stop processing: n_tokens = 639, truncated = 0
+0.30.100.656 I slot       select: id  8 | task -1 | selected slot by LRU, n_tokens = 0, t_last = -1
+0.30.100.701 I slot launch_slot_: id  8 | task 138 | processing task, is_child = 0
+0.30.722.944 I slot       select: id  9 | task -1 | selected slot by LRU, n_tokens = 0, t_last = -1
+0.30.722.997 I slot launch_slot_: id  9 | task 139 | processing task, is_child = 0
+0.30.723.497 I slot       select: id 10 | task -1 | selected slot by LRU, n_tokens = 0, t_last = -1
+0.30.723.541 I slot launch_slot_: id 10 | task 140 | processing task, is_child = 0
+0.30.723.991 I slot       select: id 11 | task -1 | selected slot by LRU, n_tokens = 0, t_last = -1
+0.30.724.015 I slot launch_slot_: id 11 | task 141 | processing task, is_child = 0
+0.30.724.465 I slot       select: id 12 | task -1 | selected slot by LRU, n_tokens = 0, t_last = -1
+0.30.724.489 I slot launch_slot_: id 12 | task 142 | processing task, is_child = 0
+0.32.286.335 I slot print_timing: id  5 | task 6 | prompt eval time =    3662.34 ms /   512 tokens (    7.15 ms per token,   139.80 tokens per second)
+0.32.286.342 I slot print_timing: id  5 | task 6 |        eval time =    6008.63 ms /   128 tokens (   47.31 ms per token,    21.14 tokens per second)
+0.32.286.343 I slot print_timing: id  5 | task 6 |       total time =    9670.97 ms /   640 tokens
+0.32.286.345 I slot print_timing: id  5 | task 6 |    graphs reused =        127
+0.32.286.345 I slot print_timing: id  5 | task 6 |   graph reallocs =          0    /     0        (same size) / (changed size)
+0.32.286.377 I slot      release: id  5 | task 6 | stop processing: n_tokens = 639, truncated = 0
+0.32.286.983 I slot print_timing: id  6 | task 7 | prompt eval time =    1599.36 ms /   512 tokens (    3.12 ms per token,   320.13 tokens per second)
+0.32.286.984 I slot print_timing: id  6 | task 7 |        eval time =    6006.92 ms /   128 tokens (   47.30 ms per token,    21.14 tokens per second)
+0.32.286.985 I slot print_timing: id  6 | task 7 |       total time =    7606.28 ms /   640 tokens
+0.32.286.985 I slot print_timing: id  6 | task 7 |    graphs reused =        127
+0.32.286.986 I slot print_timing: id  6 | task 7 |   graph reallocs =          0    /     0        (same size) / (changed size)
+0.32.287.010 I slot      release: id  6 | task 7 | stop processing: n_tokens = 639, truncated = 0
+0.32.287.486 I slot print_timing: id  7 | task 8 | prompt eval time =    1601.58 ms /   512 tokens (    3.13 ms per token,   319.68 tokens per second)
+0.32.287.493 I slot print_timing: id  7 | task 8 |        eval time =    6005.19 ms /   128 tokens (   47.28 ms per token,    21.15 tokens per second)
+0.32.287.493 I slot print_timing: id  7 | task 8 |       total time =    7606.77 ms /   640 tokens
+0.32.287.494 I slot print_timing: id  7 | task 8 |    graphs reused =        127
+0.32.287.494 I slot print_timing: id  7 | task 8 |   graph reallocs =          0    /     0        (same size) / (changed size)
+0.32.287.595 I slot      release: id  7 | task 8 | stop processing: n_tokens = 639, truncated = 0
+0.33.197.127 I slot       select: id 13 | task -1 | selected slot by LRU, n_tokens = 0, t_last = -1
+0.33.197.171 I slot launch_slot_: id 13 | task 145 | processing task, is_child = 0
+0.33.567.543 I slot       select: id 14 | task -1 | selected slot by LRU, n_tokens = 0, t_last = -1
+0.33.567.598 I slot launch_slot_: id 14 | task 146 | processing task, is_child = 0
+0.33.568.391 I slot       select: id 15 | task -1 | selected slot by LRU, n_tokens = 0, t_last = -1
+0.33.568.416 I slot launch_slot_: id 15 | task 147 | processing task, is_child = 0
+0.38.156.153 I slot print_timing: id  8 | task 138 | n_gen =    100, tg =  19.94 t/s, tg_3s =  20.14 t/s
+0.38.156.695 I slot print_timing: id  9 | task 139 | n_gen =    100, tg =  19.94 t/s, tg_3s =  20.14 t/s
+0.38.157.171 I slot print_timing: id 10 | task 140 | n_gen =    100, tg =  19.95 t/s, tg_3s =  20.15 t/s
+0.38.157.696 I slot print_timing: id 11 | task 141 | n_gen =    100, tg =  19.96 t/s, tg_3s =  20.16 t/s
+0.38.188.422 I slot print_timing: id 12 | task 142 | n_gen =    100, tg =  29.69 t/s, tg_3s =  29.99 t/s
+0.38.219.256 I slot print_timing: id 13 | task 145 | n_gen =    100, tg =  32.91 t/s, tg_3s =  33.25 t/s
+0.38.219.772 I slot print_timing: id 14 | task 146 | n_gen =    100, tg =  32.94 t/s, tg_3s =  33.27 t/s
+0.38.220.254 I slot print_timing: id 15 | task 147 | n_gen =    100, tg =  32.96 t/s, tg_3s =  33.29 t/s
+0.39.008.940 I slot print_timing: id  8 | task 138 | prompt eval time =    2465.02 ms /   512 tokens (    4.81 ms per token,   207.71 tokens per second)
+0.39.008.948 I slot print_timing: id  8 | task 138 |        eval time =    5818.89 ms /   128 tokens (   45.82 ms per token,    21.83 tokens per second)
+0.39.008.949 I slot print_timing: id  8 | task 138 |       total time =    8283.90 ms /   640 tokens
+0.39.008.950 I slot print_timing: id  8 | task 138 |    graphs reused =        251
+0.39.008.951 I slot print_timing: id  8 | task 138 |   graph reallocs =          0    /     0        (same size) / (changed size)
+0.39.008.981 I slot      release: id  8 | task 138 | stop processing: n_tokens = 639, truncated = 0
+0.39.009.465 I slot print_timing: id  9 | task 139 | prompt eval time =    2467.29 ms /   512 tokens (    4.82 ms per token,   207.52 tokens per second)
+0.39.009.471 I slot print_timing: id  9 | task 139 |        eval time =    5817.08 ms /   128 tokens (   45.80 ms per token,    21.83 tokens per second)
+0.39.009.472 I slot print_timing: id  9 | task 139 |       total time =    8284.36 ms /   640 tokens
+0.39.009.480 I slot print_timing: id  9 | task 139 |    graphs reused =        251
+0.39.009.481 I slot print_timing: id  9 | task 139 |   graph reallocs =          0    /     0        (same size) / (changed size)
+0.39.009.654 I slot      release: id  9 | task 139 | stop processing: n_tokens = 639, truncated = 0
+0.39.010.127 I slot print_timing: id 10 | task 140 | prompt eval time =    2469.70 ms /   512 tokens (    4.82 ms per token,   207.31 tokens per second)
+0.39.010.128 I slot print_timing: id 10 | task 140 |        eval time =    5815.31 ms /   128 tokens (   45.79 ms per token,    21.84 tokens per second)
+0.39.010.129 I slot print_timing: id 10 | task 140 |       total time =    8285.00 ms /   640 tokens
+0.39.010.129 I slot print_timing: id 10 | task 140 |    graphs reused =        251
+0.39.010.130 I slot print_timing: id 10 | task 140 |   graph reallocs =          0    /     0        (same size) / (changed size)
+0.39.010.171 I slot      release: id 10 | task 140 | stop processing: n_tokens = 639, truncated = 0
+0.39.010.654 I slot print_timing: id 11 | task 141 | prompt eval time =    2471.94 ms /   512 tokens (    4.83 ms per token,   207.12 tokens per second)
+0.39.010.655 I slot print_timing: id 11 | task 141 |        eval time =    5813.57 ms /   128 tokens (   45.78 ms per token,    21.85 tokens per second)
+0.39.010.656 I slot print_timing: id 11 | task 141 |       total time =    8285.51 ms /   640 tokens
+0.39.010.656 I slot print_timing: id 11 | task 141 |    graphs reused =        251
+0.39.010.657 I slot print_timing: id 11 | task 141 |   graph reallocs =          0    /     0        (same size) / (changed size)
+0.39.010.688 I slot      release: id 11 | task 141 | stop processing: n_tokens = 639, truncated = 0
+0.39.043.425 I slot print_timing: id 12 | task 142 | prompt eval time =    4128.28 ms /   512 tokens (    8.06 ms per token,   124.02 tokens per second)
+0.39.043.434 I slot print_timing: id 12 | task 142 |        eval time =    4189.94 ms /   128 tokens (   32.99 ms per token,    30.31 tokens per second)
+0.39.043.435 I slot print_timing: id 12 | task 142 |       total time =    8318.22 ms /   640 tokens
+0.39.043.436 I slot print_timing: id 12 | task 142 |    graphs reused =        251
+0.39.043.436 I slot print_timing: id 12 | task 142 |   graph reallocs =          0    /     0        (same size) / (changed size)
+0.39.043.548 I slot      release: id 12 | task 142 | stop processing: n_tokens = 639, truncated = 0
+0.39.045.046 I slot       select: id 16 | task -1 | selected slot by LRU, n_tokens = 0, t_last = -1
+0.39.045.086 I slot launch_slot_: id 16 | task 276 | processing task, is_child = 0
+0.39.662.005 I slot       select: id 17 | task -1 | selected slot by LRU, n_tokens = 0, t_last = -1
+0.39.662.063 I slot launch_slot_: id 17 | task 277 | processing task, is_child = 0
+0.39.663.376 I slot       select: id 18 | task -1 | selected slot by LRU, n_tokens = 0, t_last = -1
+0.39.663.401 I slot launch_slot_: id 18 | task 278 | processing task, is_child = 0
+0.39.664.692 I slot       select: id 19 | task -1 | selected slot by LRU, n_tokens = 0, t_last = -1
+0.39.664.715 I slot launch_slot_: id 19 | task 279 | processing task, is_child = 0
+0.39.665.997 I slot       select: id 20 | task -1 | selected slot by LRU, n_tokens = 0, t_last = -1
+0.39.666.020 I slot launch_slot_: id 20 | task 280 | processing task, is_child = 0
+0.41.232.312 I slot print_timing: id 13 | task 145 | prompt eval time =    1544.85 ms /   512 tokens (    3.02 ms per token,   331.42 tokens per second)
+0.41.232.320 I slot print_timing: id 13 | task 145 |        eval time =    6020.80 ms /   128 tokens (   47.41 ms per token,    21.09 tokens per second)
+0.41.232.321 I slot print_timing: id 13 | task 145 |       total time =    7565.65 ms /   640 tokens
+0.41.232.322 I slot print_timing: id 13 | task 145 |    graphs reused =        252
+0.41.232.322 I slot print_timing: id 13 | task 145 |   graph reallocs =          0    /     0        (same size) / (changed size)
+0.41.232.353 I slot      release: id 13 | task 145 | stop processing: n_tokens = 639, truncated = 0
+0.41.232.954 I slot print_timing: id 14 | task 146 | prompt eval time =    1547.14 ms /   512 tokens (    3.02 ms per token,   330.93 tokens per second)
+0.41.232.956 I slot print_timing: id 14 | task 146 |        eval time =    6019.02 ms /   128 tokens (   47.39 ms per token,    21.10 tokens per second)
+0.41.232.956 I slot print_timing: id 14 | task 146 |       total time =    7566.16 ms /   640 tokens
+0.41.232.957 I slot print_timing: id 14 | task 146 |    graphs reused =        252
+0.41.232.957 I slot print_timing: id 14 | task 146 |   graph reallocs =          0    /     0        (same size) / (changed size)
+0.41.232.976 I slot      release: id 14 | task 146 | stop processing: n_tokens = 639, truncated = 0
+0.41.233.457 I slot print_timing: id 15 | task 147 | prompt eval time =    1548.81 ms /   512 tokens (    3.03 ms per token,   330.58 tokens per second)
+0.41.233.464 I slot print_timing: id 15 | task 147 |        eval time =    6017.26 ms /   128 tokens (   47.38 ms per token,    21.11 tokens per second)
+0.41.233.465 I slot print_timing: id 15 | task 147 |       total time =    7566.06 ms /   640 tokens
+0.41.233.475 I slot print_timing: id 15 | task 147 |    graphs reused =        252
+0.41.233.475 I slot print_timing: id 15 | task 147 |   graph reallocs =          0    /     0        (same size) / (changed size)
+0.41.233.522 I slot      release: id 15 | task 147 | stop processing: n_tokens = 639, truncated = 0
+0.42.144.005 I slot       select: id 21 | task -1 | selected slot by LRU, n_tokens = 0, t_last = -1
+0.42.144.050 I slot launch_slot_: id 21 | task 283 | processing task, is_child = 0
+0.42.515.698 I slot       select: id 22 | task -1 | selected slot by LRU, n_tokens = 0, t_last = -1
+0.42.515.756 I slot launch_slot_: id 22 | task 284 | processing task, is_child = 0
+0.42.517.407 I slot       select: id 23 | task -1 | selected slot by LRU, n_tokens = 0, t_last = -1
+0.42.517.431 I slot launch_slot_: id 23 | task 285 | processing task, is_child = 0
+0.47.122.728 I slot print_timing: id 16 | task 276 | n_gen =    100, tg =  19.86 t/s, tg_3s =  20.06 t/s
+0.47.123.213 I slot print_timing: id 17 | task 277 | n_gen =    100, tg =  19.86 t/s, tg_3s =  20.06 t/s
+0.47.123.709 I slot print_timing: id 18 | task 278 | n_gen =    100, tg =  19.87 t/s, tg_3s =  20.07 t/s
+0.47.124.180 I slot print_timing: id 19 | task 279 | n_gen =    100, tg =  19.88 t/s, tg_3s =  20.08 t/s
+0.47.155.053 I slot print_timing: id 20 | task 280 | n_gen =    100, tg =  29.62 t/s, tg_3s =  29.92 t/s
+0.47.185.903 I slot print_timing: id 21 | task 283 | n_gen =    100, tg =  32.89 t/s, tg_3s =  33.22 t/s
+0.47.186.383 I slot print_timing: id 22 | task 284 | n_gen =    100, tg =  32.91 t/s, tg_3s =  33.24 t/s
+0.47.186.902 I slot print_timing: id 23 | task 285 | n_gen =    100, tg =  32.93 t/s, tg_3s =  33.26 t/s
+0.47.973.021 I slot print_timing: id 16 | task 276 | prompt eval time =    2469.62 ms /   512 tokens (    4.82 ms per token,   207.32 tokens per second)
+0.47.973.029 I slot print_timing: id 16 | task 276 |        eval time =    5836.09 ms /   128 tokens (   45.95 ms per token,    21.76 tokens per second)
+0.47.973.030 I slot print_timing: id 16 | task 276 |       total time =    8305.70 ms /   640 tokens
+0.47.973.031 I slot print_timing: id 16 | task 276 |    graphs reused =        376
+0.47.973.032 I slot print_timing: id 16 | task 276 |   graph reallocs =          0    /     0        (same size) / (changed size)
+0.47.973.061 I slot      release: id 16 | task 276 | stop processing: n_tokens = 639, truncated = 0
+0.47.973.552 I slot print_timing: id 17 | task 277 | prompt eval time =    2471.91 ms /   512 tokens (    4.83 ms per token,   207.13 tokens per second)
+0.47.973.557 I slot print_timing: id 17 | task 277 |        eval time =    5834.25 ms /   128 tokens (   45.94 ms per token,    21.77 tokens per second)
+0.47.973.558 I slot print_timing: id 17 | task 277 |       total time =    8306.16 ms /   640 tokens
+0.47.973.559 I slot print_timing: id 17 | task 277 |    graphs reused =        376
+0.47.973.559 I slot print_timing: id 17 | task 277 |   graph reallocs =          0    /     0        (same size) / (changed size)
+0.47.973.710 I slot      release: id 17 | task 277 | stop processing: n_tokens = 639, truncated = 0
+0.47.974.178 I slot print_timing: id 18 | task 278 | prompt eval time =    2474.21 ms /   512 tokens (    4.83 ms per token,   206.93 tokens per second)
+0.47.974.184 I slot print_timing: id 18 | task 278 |        eval time =    5832.57 ms /   128 tokens (   45.93 ms per token,    21.77 tokens per second)
+0.47.974.185 I slot print_timing: id 18 | task 278 |       total time =    8306.78 ms /   640 tokens
+0.47.974.185 I slot print_timing: id 18 | task 278 |    graphs reused =        376
+0.47.974.186 I slot print_timing: id 18 | task 278 |   graph reallocs =          0    /     0        (same size) / (changed size)
+0.47.974.315 I slot      release: id 18 | task 278 | stop processing: n_tokens = 639, truncated = 0
+0.47.974.821 I slot print_timing: id 19 | task 279 | prompt eval time =    2476.54 ms /   512 tokens (    4.84 ms per token,   206.74 tokens per second)
+0.47.974.827 I slot print_timing: id 19 | task 279 |        eval time =    5830.86 ms /   128 tokens (   45.91 ms per token,    21.78 tokens per second)
+0.47.974.828 I slot print_timing: id 19 | task 279 |       total time =    8307.40 ms /   640 tokens
+0.47.974.829 I slot print_timing: id 19 | task 279 |    graphs reused =        376
+0.47.974.829 I slot print_timing: id 19 | task 279 |   graph reallocs =          0    /     0        (same size) / (changed size)
+0.47.974.858 I slot      release: id 19 | task 279 | stop processing: n_tokens = 639, truncated = 0
+0.48.007.821 I slot print_timing: id 20 | task 280 | prompt eval time =    4145.55 ms /   512 tokens (    8.10 ms per token,   123.51 tokens per second)
+0.48.007.829 I slot print_timing: id 20 | task 280 |        eval time =    4194.80 ms /   128 tokens (   33.03 ms per token,    30.28 tokens per second)
+0.48.007.830 I slot print_timing: id 20 | task 280 |       total time =    8340.35 ms /   640 tokens
+0.48.007.831 I slot print_timing: id 20 | task 280 |    graphs reused =        376
+0.48.007.832 I slot print_timing: id 20 | task 280 |   graph reallocs =          0    /     0        (same size) / (changed size)
+0.48.007.921 I slot      release: id 20 | task 280 | stop processing: n_tokens = 639, truncated = 0
+0.48.009.384 I slot       select: id 24 | task -1 | selected slot by LRU, n_tokens = 0, t_last = -1
+0.48.009.427 I slot launch_slot_: id 24 | task 414 | processing task, is_child = 0
+0.48.626.496 I slot       select: id 25 | task -1 | selected slot by LRU, n_tokens = 0, t_last = -1
+0.48.626.564 I slot launch_slot_: id 25 | task 415 | processing task, is_child = 0
+0.48.628.780 I slot       select: id 26 | task -1 | selected slot by LRU, n_tokens = 0, t_last = -1
+0.48.628.805 I slot launch_slot_: id 26 | task 416 | processing task, is_child = 0
+0.48.630.932 I slot       select: id 27 | task -1 | selected slot by LRU, n_tokens = 0, t_last = -1
+0.48.630.955 I slot launch_slot_: id 27 | task 417 | processing task, is_child = 0
+0.48.633.061 I slot       select: id 28 | task -1 | selected slot by LRU, n_tokens = 0, t_last = -1
+0.48.633.085 I slot launch_slot_: id 28 | task 418 | processing task, is_child = 0
+0.50.228.336 I slot print_timing: id 21 | task 283 | prompt eval time =    1558.56 ms /   512 tokens (    3.04 ms per token,   328.51 tokens per second)
+0.50.228.344 I slot print_timing: id 21 | task 283 |        eval time =    6052.75 ms /   128 tokens (   47.66 ms per token,    20.98 tokens per second)
+0.50.228.345 I slot print_timing: id 21 | task 283 |       total time =    7611.31 ms /   640 tokens
+0.50.228.346 I slot print_timing: id 21 | task 283 |    graphs reused =        377
+0.50.228.346 I slot print_timing: id 21 | task 283 |   graph reallocs =          0    /     0        (same size) / (changed size)
+0.50.228.376 I slot      release: id 21 | task 283 | stop processing: n_tokens = 639, truncated = 0
+0.50.228.911 I slot print_timing: id 22 | task 284 | prompt eval time =    1560.97 ms /   512 tokens (    3.05 ms per token,   328.00 tokens per second)
+0.50.228.912 I slot print_timing: id 22 | task 284 |        eval time =    6050.85 ms /   128 tokens (   47.64 ms per token,    20.99 tokens per second)
+0.50.228.913 I slot print_timing: id 22 | task 284 |       total time =    7611.82 ms /   640 tokens
+0.50.228.913 I slot print_timing: id 22 | task 284 |    graphs reused =        377
+0.50.228.914 I slot print_timing: id 22 | task 284 |   graph reallocs =          0    /     0        (same size) / (changed size)
+0.50.229.013 I slot      release: id 22 | task 284 | stop processing: n_tokens = 639, truncated = 0
+0.50.229.510 I slot print_timing: id 23 | task 285 | prompt eval time =    1563.52 ms /   512 tokens (    3.05 ms per token,   327.47 tokens per second)
+0.50.229.517 I slot print_timing: id 23 | task 285 |        eval time =    6048.88 ms /   128 tokens (   47.63 ms per token,    21.00 tokens per second)
+0.50.229.518 I slot print_timing: id 23 | task 285 |       total time =    7612.40 ms /   640 tokens
+0.50.229.519 I slot print_timing: id 23 | task 285 |    graphs reused =        377
+0.50.229.520 I slot print_timing: id 23 | task 285 |   graph reallocs =          0    /     0        (same size) / (changed size)
+0.50.229.578 I slot      release: id 23 | task 285 | stop processing: n_tokens = 639, truncated = 0
+0.51.143.299 I slot       select: id 29 | task -1 | selected slot by LRU, n_tokens = 0, t_last = -1
+0.51.143.344 I slot launch_slot_: id 29 | task 421 | processing task, is_child = 0
+0.51.268.449 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+0.51.409.207 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+0.51.549.285 I slot       select: id 30 | task -1 | selected slot by LRU, n_tokens = 0, t_last = -1
+0.51.549.341 I slot launch_slot_: id 30 | task 422 | processing task, is_child = 0
+0.51.549.514 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+0.51.689.713 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+0.51.829.587 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+0.51.969.707 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+0.52.231.941 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+0.52.249.345 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+0.52.389.907 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+0.52.529.703 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+0.52.669.225 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+0.52.808.968 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+0.52.948.594 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+0.53.219.931 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+0.53.237.264 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+0.53.380.975 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+0.53.533.064 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+0.53.693.692 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+0.53.850.015 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+0.54.005.475 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+0.54.165.759 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+0.54.445.772 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+0.54.466.187 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+0.54.614.769 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+0.54.767.603 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+0.54.930.339 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+0.55.083.463 I slot       select: id 31 | task -1 | selected slot by LRU, n_tokens = 0, t_last = -1
+0.55.083.520 I slot launch_slot_: id 31 | task 423 | processing task, is_child = 0
+0.55.083.692 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+0.55.240.700 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+0.55.393.089 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+0.55.542.653 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+0.55.819.166 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+0.55.838.493 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+0.55.985.487 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+0.56.132.287 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+0.56.279.253 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+0.56.427.259 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+0.56.575.925 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+0.56.850.496 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+0.56.869.752 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+0.57.017.822 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+0.57.165.791 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+0.57.314.101 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+0.57.472.785 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+0.57.636.505 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+0.57.798.876 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+0.58.083.129 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+0.58.103.384 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+0.58.252.453 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+0.58.402.357 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+0.58.550.886 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.03.413.796 I slot print_timing: id 24 | task 414 | n_gen =    100, tg =   8.06 t/s, tg_3s =   8.14 t/s
+1.03.414.280 I slot print_timing: id 25 | task 415 | n_gen =    100, tg =   8.06 t/s, tg_3s =   8.15 t/s
+1.03.414.793 I slot print_timing: id 26 | task 416 | n_gen =    100, tg =   8.07 t/s, tg_3s =   8.15 t/s
+1.03.415.266 I slot print_timing: id 27 | task 417 | n_gen =    100, tg =   8.07 t/s, tg_3s =   8.15 t/s
+1.03.446.159 I slot print_timing: id 28 | task 418 | n_gen =    100, tg =  29.25 t/s, tg_3s =  29.54 t/s
+1.03.477.073 I slot print_timing: id 29 | task 421 | n_gen =    100, tg =  32.89 t/s, tg_3s =  33.22 t/s
+1.03.477.567 I slot print_timing: id 30 | task 422 | n_gen =    100, tg =  32.91 t/s, tg_3s =  33.25 t/s
+1.03.478.050 I slot print_timing: id 31 | task 423 | n_gen =    100, tg =  32.94 t/s, tg_3s =  33.27 t/s
+1.04.263.750 I slot print_timing: id 24 | task 414 | prompt eval time =    2500.61 ms /   512 tokens (    4.88 ms per token,   204.75 tokens per second)
+1.04.263.759 I slot print_timing: id 24 | task 414 |        eval time =   13127.89 ms /   128 tokens (  103.37 ms per token,     9.67 tokens per second)
+1.04.263.760 I slot print_timing: id 24 | task 414 |       total time =   15628.50 ms /   640 tokens
+1.04.263.761 I slot print_timing: id 24 | task 414 |    graphs reused =        501
+1.04.263.761 I slot print_timing: id 24 | task 414 |   graph reallocs =          0    /     0        (same size) / (changed size)
+1.04.263.794 I slot      release: id 24 | task 414 | stop processing: n_tokens = 639, truncated = 0
+1.04.264.276 I slot print_timing: id 25 | task 415 | prompt eval time =    2502.97 ms /   512 tokens (    4.89 ms per token,   204.56 tokens per second)
+1.04.264.278 I slot print_timing: id 25 | task 415 |        eval time =   13126.00 ms /   128 tokens (  103.35 ms per token,     9.68 tokens per second)
+1.04.264.278 I slot print_timing: id 25 | task 415 |       total time =   15628.97 ms /   640 tokens
+1.04.264.279 I slot print_timing: id 25 | task 415 |    graphs reused =        501
+1.04.264.279 I slot print_timing: id 25 | task 415 |   graph reallocs =          0    /     0        (same size) / (changed size)
+1.04.264.327 I slot      release: id 25 | task 415 | stop processing: n_tokens = 639, truncated = 0
+1.04.264.830 I slot print_timing: id 26 | task 416 | prompt eval time =    2505.46 ms /   512 tokens (    4.89 ms per token,   204.35 tokens per second)
+1.04.264.837 I slot print_timing: id 26 | task 416 |        eval time =   13124.03 ms /   128 tokens (  103.34 ms per token,     9.68 tokens per second)
+1.04.264.838 I slot print_timing: id 26 | task 416 |       total time =   15629.49 ms /   640 tokens
+1.04.264.838 I slot print_timing: id 26 | task 416 |    graphs reused =        501
+1.04.264.839 I slot print_timing: id 26 | task 416 |   graph reallocs =          0    /     0        (same size) / (changed size)
+1.04.264.863 I slot      release: id 26 | task 416 | stop processing: n_tokens = 639, truncated = 0
+1.04.265.324 I slot print_timing: id 27 | task 417 | prompt eval time =    2507.90 ms /   512 tokens (    4.90 ms per token,   204.16 tokens per second)
+1.04.265.331 I slot print_timing: id 27 | task 417 |        eval time =   13122.07 ms /   128 tokens (  103.32 ms per token,     9.68 tokens per second)
+1.04.265.332 I slot print_timing: id 27 | task 417 |       total time =   15629.97 ms /   640 tokens
+1.04.265.332 I slot print_timing: id 27 | task 417 |    graphs reused =        501
+1.04.265.333 I slot print_timing: id 27 | task 417 |   graph reallocs =          0    /     0        (same size) / (changed size)
+1.04.265.435 I slot      release: id 27 | task 417 | stop processing: n_tokens = 639, truncated = 0
+1.04.298.415 I slot print_timing: id 28 | task 418 | prompt eval time =   11426.02 ms /   512 tokens (   22.32 ms per token,    44.81 tokens per second)
+1.04.298.422 I slot print_timing: id 28 | task 418 |        eval time =    4236.98 ms /   128 tokens (   33.36 ms per token,    29.97 tokens per second)
+1.04.298.423 I slot print_timing: id 28 | task 418 |       total time =   15663.00 ms /   640 tokens
+1.04.298.424 I slot print_timing: id 28 | task 418 |    graphs reused =        501
+1.04.298.424 I slot print_timing: id 28 | task 418 |   graph reallocs =          0    /     0        (same size) / (changed size)
+1.04.298.508 I slot      release: id 28 | task 418 | stop processing: n_tokens = 639, truncated = 0
+1.04.299.930 I slot       select: id  0 | task -1 | selected slot by LRU, n_tokens = 639, t_last = 62510953518
+1.04.300.106 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.04.448.299 I slot launch_slot_: id  0 | task 552 | processing task, is_child = 0
+1.04.448.509 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.04.597.487 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.04.746.502 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+1.05.061.705 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.05.083.767 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.05.237.549 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.05.378.820 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.05.520.126 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.05.660.468 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.05.801.544 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+1.06.065.668 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.06.083.221 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.06.238.838 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.06.396.813 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.06.550.638 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.06.706.152 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.06.853.911 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.07.000.753 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+1.07.274.902 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.07.293.131 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.07.439.406 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.07.585.230 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.07.732.876 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.07.879.158 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.08.025.630 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.08.170.816 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.08.318.150 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+1.08.467.798 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.08.612.972 I slot       select: id  1 | task -1 | selected slot by LRU, n_tokens = 639, t_last = 62510988933
+1.08.613.162 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.08.760.156 I slot launch_slot_: id  1 | task 553 | processing task, is_child = 0
+1.08.760.362 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.08.906.105 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.09.052.041 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.09.198.296 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.09.345.194 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+1.09.491.645 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.09.636.376 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.09.786.497 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.09.940.221 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.10.103.685 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.10.255.490 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.10.401.758 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.10.550.132 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+1.10.697.952 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.10.843.940 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.10.987.734 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.11.133.854 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.11.279.067 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.11.424.328 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.11.570.396 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.11.721.131 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+1.11.866.070 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.12.010.738 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.12.155.745 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.12.300.775 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.12.445.823 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+1.12.592.386 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.12.739.360 I slot       select: id  2 | task -1 | selected slot by LRU, n_tokens = 639, t_last = 62510989547
+1.12.739.558 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.12.884.384 I slot launch_slot_: id  2 | task 554 | processing task, is_child = 0
+1.12.884.584 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.13.029.454 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.13.176.016 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.13.323.274 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.13.468.833 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+1.13.614.076 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.13.760.850 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.13.906.379 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.14.051.650 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.14.196.851 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.14.342.598 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.14.488.040 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.14.632.858 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+1.14.779.945 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.14.926.613 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.15.072.442 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.15.217.679 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.15.362.607 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.15.507.614 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.15.652.948 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.15.799.884 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+1.15.944.462 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.16.089.815 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.16.235.146 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.16.380.983 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+1.16.528.132 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.16.674.547 I slot       select: id  3 | task -1 | selected slot by LRU, n_tokens = 639, t_last = 62510990132
+1.16.674.744 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.16.819.998 I slot launch_slot_: id  3 | task 555 | processing task, is_child = 0
+1.16.820.180 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.16.965.029 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.17.111.767 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.17.257.860 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.17.403.502 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+1.17.549.071 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.17.694.803 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.17.840.421 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.17.985.959 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.18.134.047 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.18.279.859 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.18.425.470 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.18.571.483 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+1.18.717.155 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.18.862.792 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.19.008.182 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.19.153.394 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.19.298.642 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.19.444.068 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.19.589.628 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.19.738.442 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+1.19.884.403 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.20.031.521 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.20.176.864 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+1.20.322.594 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.20.469.176 I slot       select: id  4 | task -1 | selected slot by LRU, n_tokens = 639, t_last = 62510990637
+1.20.469.376 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.20.617.268 I slot launch_slot_: id  4 | task 556 | processing task, is_child = 0
+1.20.617.450 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.20.765.466 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.20.911.039 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.21.056.899 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.21.201.346 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+1.21.348.968 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.21.495.342 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.21.641.039 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.21.787.736 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.21.933.100 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.22.078.879 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.22.223.595 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.22.368.910 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+1.22.515.277 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.22.660.987 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.22.807.709 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.22.953.453 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.23.099.701 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.23.245.957 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.23.391.119 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.23.536.738 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+1.23.682.916 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.23.829.947 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+1.23.975.438 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.25.824.663 I slot print_timing: id 29 | task 421 | prompt eval time =    1666.59 ms /   512 tokens (    3.26 ms per token,   307.21 tokens per second)
+1.25.824.671 I slot print_timing: id 29 | task 421 |        eval time =   25357.84 ms /   128 tokens (  199.67 ms per token,     5.01 tokens per second)
+1.25.824.672 I slot print_timing: id 29 | task 421 |       total time =   27024.43 ms /   640 tokens
+1.25.824.672 I slot print_timing: id 29 | task 421 |    graphs reused =        502
+1.25.824.673 I slot print_timing: id 29 | task 421 |   graph reallocs =          0    /     0        (same size) / (changed size)
+1.25.824.708 I slot      release: id 29 | task 421 | stop processing: n_tokens = 639, truncated = 0
+1.25.825.198 I slot print_timing: id 30 | task 422 | prompt eval time =    1669.38 ms /   512 tokens (    3.26 ms per token,   306.70 tokens per second)
+1.25.825.199 I slot print_timing: id 30 | task 422 |        eval time =   25355.52 ms /   128 tokens (  199.65 ms per token,     5.01 tokens per second)
+1.25.825.200 I slot print_timing: id 30 | task 422 |       total time =   27024.90 ms /   640 tokens
+1.25.825.200 I slot print_timing: id 30 | task 422 |    graphs reused =        502
+1.25.825.201 I slot print_timing: id 30 | task 422 |   graph reallocs =          0    /     0        (same size) / (changed size)
+1.25.825.252 I slot      release: id 30 | task 422 | stop processing: n_tokens = 639, truncated = 0
+1.25.825.750 I slot print_timing: id 31 | task 423 | prompt eval time =    1672.07 ms /   512 tokens (    3.27 ms per token,   306.21 tokens per second)
+1.25.825.757 I slot print_timing: id 31 | task 423 |        eval time =   25353.36 ms /   128 tokens (  199.63 ms per token,     5.01 tokens per second)
+1.25.825.758 I slot print_timing: id 31 | task 423 |       total time =   27025.43 ms /   640 tokens
+1.25.825.758 I slot print_timing: id 31 | task 423 |    graphs reused =        502
+1.25.825.759 I slot print_timing: id 31 | task 423 |   graph reallocs =          0    /     0        (same size) / (changed size)
+1.25.825.785 I slot      release: id 31 | task 423 | stop processing: n_tokens = 639, truncated = 0
+1.26.750.576 I slot       select: id  5 | task -1 | selected slot by LRU, n_tokens = 639, t_last = 62513177845
+1.26.750.764 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.26.894.895 I slot launch_slot_: id  5 | task 559 | processing task, is_child = 0
+1.26.895.095 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.27.035.446 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.27.177.330 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.27.318.309 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.27.458.583 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+1.27.599.049 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.27.739.477 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.27.879.734 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.28.020.470 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.28.160.299 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.28.301.775 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.28.442.166 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.28.583.290 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+1.28.729.633 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.28.876.396 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.29.022.364 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.29.166.849 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.29.312.936 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.29.458.075 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.29.604.328 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.29.750.153 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+1.29.895.672 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+1.30.041.400 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.30.186.143 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.30.333.342 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.30.477.905 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.30.623.119 I slot       select: id  6 | task -1 | selected slot by LRU, n_tokens = 639, t_last = 62513178478
+1.30.623.315 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.30.768.601 I slot launch_slot_: id  6 | task 560 | processing task, is_child = 0
+1.30.768.791 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.30.914.240 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+1.31.186.540 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.31.332.242 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.31.485.693 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.31.504.230 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.31.663.444 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.31.818.200 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.31.973.886 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.32.119.940 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+1.32.395.368 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.32.542.067 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.32.687.613 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.32.705.352 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.32.851.871 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.32.997.677 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.33.143.256 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.33.288.109 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+1.33.561.998 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.33.709.895 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.33.854.541 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.33.871.900 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.34.018.740 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.34.163.686 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.34.308.151 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.34.452.227 I slot       select: id  7 | task -1 | selected slot by LRU, n_tokens = 639, t_last = 62513179063
+1.34.452.414 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.34.597.560 I slot launch_slot_: id  7 | task 561 | processing task, is_child = 0
+1.34.597.742 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.34.744.171 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+1.35.023.434 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.35.168.510 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.35.185.924 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.35.331.074 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.35.476.795 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.35.623.018 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.35.769.202 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.35.920.583 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+1.36.195.888 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.36.341.740 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.36.359.045 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.36.504.139 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.36.650.652 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.36.795.206 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.36.942.932 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.37.088.027 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+1.37.361.192 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.37.521.930 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.37.539.194 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.37.685.206 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.37.829.807 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.37.975.096 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.42.802.891 I slot print_timing: id  0 | task 552 | n_gen =    100, tg =   6.17 t/s, tg_3s =   6.23 t/s
+1.42.803.400 I slot print_timing: id  1 | task 553 | n_gen =    100, tg =   6.17 t/s, tg_3s =   6.23 t/s
+1.42.803.882 I slot print_timing: id  2 | task 554 | n_gen =    100, tg =   6.17 t/s, tg_3s =   6.23 t/s
+1.42.804.364 I slot print_timing: id  3 | task 555 | n_gen =    100, tg =   6.17 t/s, tg_3s =   6.23 t/s
+1.42.835.041 I slot print_timing: id  4 | task 556 | n_gen =    100, tg =  29.83 t/s, tg_3s =  30.13 t/s
+1.42.895.778 I slot print_timing: id  5 | task 559 | n_gen =    101, tg =  33.14 t/s, tg_3s =  33.47 t/s
+1.42.896.264 I slot print_timing: id  6 | task 560 | n_gen =    101, tg =  33.14 t/s, tg_3s =  33.47 t/s
+1.42.896.757 I slot print_timing: id  7 | task 561 | n_gen =    101, tg =  33.16 t/s, tg_3s =  33.49 t/s
+1.43.658.257 I slot print_timing: id  0 | task 552 | prompt eval time =    2627.19 ms /   512 tokens (    5.13 ms per token,   194.89 tokens per second)
+1.43.658.265 I slot print_timing: id  0 | task 552 |        eval time =   16909.79 ms /   128 tokens (  133.15 ms per token,     7.51 tokens per second)
+1.43.658.266 I slot print_timing: id  0 | task 552 |       total time =   19536.98 ms /   640 tokens
+1.43.658.268 I slot print_timing: id  0 | task 552 |    graphs reused =        626
+1.43.658.268 I slot print_timing: id  0 | task 552 |   graph reallocs =          0    /     0        (same size) / (changed size)
+1.43.658.301 I slot      release: id  0 | task 552 | stop processing: n_tokens = 639, truncated = 0
+1.43.658.799 I slot print_timing: id  1 | task 553 | prompt eval time =    2612.82 ms /   512 tokens (    5.10 ms per token,   195.96 tokens per second)
+1.43.658.805 I slot print_timing: id  1 | task 553 |        eval time =   16909.63 ms /   128 tokens (  133.15 ms per token,     7.51 tokens per second)
+1.43.658.806 I slot print_timing: id  1 | task 553 |       total time =   19522.45 ms /   640 tokens
+1.43.658.806 I slot print_timing: id  1 | task 553 |    graphs reused =        626
+1.43.658.807 I slot print_timing: id  1 | task 553 |   graph reallocs =          0    /     0        (same size) / (changed size)
+1.43.658.827 I slot      release: id  1 | task 553 | stop processing: n_tokens = 639, truncated = 0
+1.43.659.297 I slot print_timing: id  2 | task 554 | prompt eval time =    2597.08 ms /   512 tokens (    5.07 ms per token,   197.14 tokens per second)
+1.43.659.302 I slot print_timing: id  2 | task 554 |        eval time =   16909.45 ms /   128 tokens (  133.15 ms per token,     7.51 tokens per second)
+1.43.659.303 I slot print_timing: id  2 | task 554 |       total time =   19506.53 ms /   640 tokens
+1.43.659.304 I slot print_timing: id  2 | task 554 |    graphs reused =        626
+1.43.659.304 I slot print_timing: id  2 | task 554 |   graph reallocs =          0    /     0        (same size) / (changed size)
+1.43.659.384 I slot      release: id  2 | task 554 | stop processing: n_tokens = 639, truncated = 0
+1.43.659.862 I slot print_timing: id  3 | task 555 | prompt eval time =    2581.23 ms /   512 tokens (    5.04 ms per token,   198.36 tokens per second)
+1.43.659.868 I slot print_timing: id  3 | task 555 |        eval time =   16909.35 ms /   128 tokens (  133.14 ms per token,     7.51 tokens per second)
+1.43.659.869 I slot print_timing: id  3 | task 555 |       total time =   19490.57 ms /   640 tokens
+1.43.659.870 I slot print_timing: id  3 | task 555 |    graphs reused =        626
+1.43.659.870 I slot print_timing: id  3 | task 555 |   graph reallocs =          0    /     0        (same size) / (changed size)
+1.43.659.900 I slot      release: id  3 | task 555 | stop processing: n_tokens = 639, truncated = 0
+1.43.692.616 I slot print_timing: id  4 | task 556 | prompt eval time =   15330.77 ms /   512 tokens (   29.94 ms per token,    33.40 tokens per second)
+1.43.692.624 I slot print_timing: id  4 | task 556 |        eval time =    4176.24 ms /   128 tokens (   32.88 ms per token,    30.41 tokens per second)
+1.43.692.625 I slot print_timing: id  4 | task 556 |       total time =   19507.01 ms /   640 tokens
+1.43.692.626 I slot print_timing: id  4 | task 556 |    graphs reused =        626
+1.43.692.627 I slot print_timing: id  4 | task 556 |   graph reallocs =          0    /     0        (same size) / (changed size)
+1.43.692.710 I slot      release: id  4 | task 556 | stop processing: n_tokens = 639, truncated = 0
+1.43.694.152 I slot       select: id  8 | task -1 | selected slot by LRU, n_tokens = 639, t_last = 62519900449
+1.43.694.335 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.43.835.493 I slot launch_slot_: id  8 | task 690 | processing task, is_child = 0
+1.43.835.687 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.43.976.297 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+1.44.239.573 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.44.380.353 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.44.398.103 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.44.552.914 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.44.694.051 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.44.834.625 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.44.975.186 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.45.116.135 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+1.45.256.169 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.45.397.086 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.45.542.400 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.45.690.422 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.45.836.418 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.45.981.446 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.46.127.723 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.46.272.594 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+1.46.417.619 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.46.563.385 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.46.710.983 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.46.857.165 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.47.002.992 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.47.148.293 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.47.293.724 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.47.439.050 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.47.586.230 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+1.47.732.905 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.47.877.465 I slot       select: id  9 | task -1 | selected slot by LRU, n_tokens = 639, t_last = 62519901122
+1.47.877.655 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.48.022.918 I slot launch_slot_: id  9 | task 691 | processing task, is_child = 0
+1.48.023.101 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.48.168.657 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+1.48.448.240 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.48.595.589 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.48.614.117 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.48.767.949 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.48.929.439 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.49.075.623 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.49.221.981 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.49.367.498 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+1.49.512.560 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.49.658.813 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.49.804.164 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.49.950.274 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.50.096.366 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.50.244.156 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.50.390.689 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.50.536.502 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+1.50.685.125 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.50.831.482 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.50.977.721 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.51.127.484 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.51.273.449 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.51.419.799 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.51.565.133 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.51.711.981 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.51.857.680 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+1.52.002.833 I slot       select: id 10 | task -1 | selected slot by LRU, n_tokens = 639, t_last = 62519901639
+1.52.003.064 I slot launch_slot_: id 10 | task 692 | processing task, is_child = 0
+1.52.003.191 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.52.149.911 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.52.295.341 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+1.52.569.188 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.52.586.914 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.52.733.667 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.52.878.977 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.53.024.526 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.53.169.687 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.53.316.252 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.53.463.135 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+1.53.608.493 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.53.755.835 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.53.902.098 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.54.048.466 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.54.194.193 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.54.340.429 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.54.486.401 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.54.633.588 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+1.54.779.040 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.54.924.123 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.55.069.147 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.55.214.169 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.55.361.524 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.55.506.877 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.55.652.882 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.55.797.380 I slot       select: id 11 | task -1 | selected slot by LRU, n_tokens = 639, t_last = 62519902156
+1.55.797.622 I slot launch_slot_: id 11 | task 693 | processing task, is_child = 0
+1.55.797.743 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+1.55.943.786 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.56.088.650 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+1.56.362.192 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.56.379.793 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.56.526.097 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.56.674.184 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.56.824.015 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.56.970.355 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.57.116.150 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.57.260.887 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+1.57.406.681 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.57.552.463 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.57.700.015 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.57.846.391 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.57.992.150 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.58.137.356 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.58.282.377 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.58.427.200 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+1.58.574.927 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.58.721.759 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.58.867.682 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.59.012.401 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.59.157.438 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.59.302.031 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.59.447.283 I slot       select: id 12 | task -1 | selected slot by LRU, n_tokens = 639, t_last = 62519935016
+1.59.447.513 I slot launch_slot_: id 12 | task 694 | processing task, is_child = 0
+1.59.447.646 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+1.59.592.842 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+1.59.739.105 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+2.00.014.204 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.00.031.683 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.00.178.639 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.00.324.030 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.00.470.169 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.00.616.025 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.00.762.860 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.00.909.097 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+2.01.183.485 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.01.201.011 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.01.346.202 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.01.491.752 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.01.636.551 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.01.785.382 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.01.932.032 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.02.078.413 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+2.02.351.175 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.02.368.469 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.02.514.598 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.02.661.553 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.02.807.122 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.04.649.303 I slot print_timing: id  5 | task 559 | prompt eval time =    1656.55 ms /   512 tokens (    3.24 ms per token,   309.08 tokens per second)
+2.04.649.311 I slot print_timing: id  5 | task 559 |        eval time =   24771.44 ms /   128 tokens (  195.05 ms per token,     5.13 tokens per second)
+2.04.649.312 I slot print_timing: id  5 | task 559 |       total time =   26427.99 ms /   640 tokens
+2.04.649.313 I slot print_timing: id  5 | task 559 |    graphs reused =        627
+2.04.649.314 I slot print_timing: id  5 | task 559 |   graph reallocs =          0    /     0        (same size) / (changed size)
+2.04.649.348 I slot      release: id  5 | task 559 | stop processing: n_tokens = 639, truncated = 0
+2.04.649.825 I slot print_timing: id  6 | task 560 | prompt eval time =    1629.44 ms /   512 tokens (    3.18 ms per token,   314.22 tokens per second)
+2.04.649.831 I slot print_timing: id  6 | task 560 |        eval time =   24771.32 ms /   128 tokens (  195.05 ms per token,     5.13 tokens per second)
+2.04.649.832 I slot print_timing: id  6 | task 560 |       total time =   26400.75 ms /   640 tokens
+2.04.649.832 I slot print_timing: id  6 | task 560 |    graphs reused =        627
+2.04.649.833 I slot print_timing: id  6 | task 560 |   graph reallocs =          0    /     0        (same size) / (changed size)
+2.04.649.859 I slot      release: id  6 | task 560 | stop processing: n_tokens = 639, truncated = 0
+2.04.650.336 I slot print_timing: id  7 | task 561 | prompt eval time =    1616.13 ms /   512 tokens (    3.16 ms per token,   316.81 tokens per second)
+2.04.650.343 I slot print_timing: id  7 | task 561 |        eval time =   24769.35 ms /   128 tokens (  195.03 ms per token,     5.13 tokens per second)
+2.04.650.344 I slot print_timing: id  7 | task 561 |       total time =   26385.49 ms /   640 tokens
+2.04.650.344 I slot print_timing: id  7 | task 561 |    graphs reused =        627
+2.04.650.345 I slot print_timing: id  7 | task 561 |   graph reallocs =          0    /     0        (same size) / (changed size)
+2.04.650.394 I slot      release: id  7 | task 561 | stop processing: n_tokens = 639, truncated = 0
+2.05.550.979 I slot       select: id 13 | task -1 | selected slot by LRU, n_tokens = 639, t_last = 62522123821
+2.05.551.209 I slot launch_slot_: id 13 | task 697 | processing task, is_child = 0
+2.05.551.326 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.05.693.493 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.05.833.765 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+2.06.097.426 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.06.114.960 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.06.256.394 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.06.397.254 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.06.542.115 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.06.685.209 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.06.826.984 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.06.967.457 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+2.07.234.690 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.07.376.133 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.07.521.613 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.07.539.739 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.07.689.003 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.07.835.668 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.07.980.842 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.08.127.367 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+2.08.403.334 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.08.549.515 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.08.697.002 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.08.714.854 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.08.863.670 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.09.008.828 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.09.154.456 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.09.299.565 I slot       select: id 14 | task -1 | selected slot by LRU, n_tokens = 639, t_last = 62522124444
+2.09.299.792 I slot launch_slot_: id 14 | task 698 | processing task, is_child = 0
+2.09.299.909 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+2.09.574.732 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.09.720.924 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.09.867.812 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.09.885.301 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.10.035.043 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.10.180.916 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.10.326.557 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.10.472.886 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.10.620.080 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.10.765.848 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+2.11.043.319 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.11.189.097 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.11.206.647 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.11.353.485 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.11.498.355 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.11.646.167 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.11.792.641 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.11.938.479 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+2.12.214.318 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.12.360.253 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.12.377.747 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.12.524.595 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.12.673.508 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.12.818.919 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.12.965.477 I slot       select: id 15 | task -1 | selected slot by LRU, n_tokens = 639, t_last = 62522124990
+2.12.965.716 I slot launch_slot_: id 15 | task 699 | processing task, is_child = 0
+2.12.965.844 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.13.112.582 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+2.13.388.171 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.13.533.890 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.13.551.439 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.13.699.568 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.13.845.432 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.13.991.510 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.14.137.593 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.14.283.541 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.14.430.250 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+2.14.706.762 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.14.724.250 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.14.873.317 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.15.019.806 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.15.165.232 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.15.313.415 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.15.498.511 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.15.643.929 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+2.15.917.108 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.15.935.199 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.16.082.037 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.16.227.545 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.16.373.301 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.21.245.710 I slot print_timing: id  8 | task 690 | n_gen =    100, tg =   6.31 t/s, tg_3s =   6.37 t/s
+2.21.246.218 I slot print_timing: id  9 | task 691 | n_gen =    100, tg =   6.31 t/s, tg_3s =   6.37 t/s
+2.21.246.718 I slot print_timing: id 10 | task 692 | n_gen =    100, tg =   6.31 t/s, tg_3s =   6.37 t/s
+2.21.247.196 I slot print_timing: id 11 | task 693 | n_gen =    100, tg =   6.31 t/s, tg_3s =   6.37 t/s
+2.21.277.884 I slot print_timing: id 12 | task 694 | n_gen =    100, tg =  29.53 t/s, tg_3s =  29.83 t/s
+2.21.308.599 I slot print_timing: id 13 | task 697 | n_gen =    100, tg =  32.74 t/s, tg_3s =  33.07 t/s
+2.21.309.104 I slot print_timing: id 14 | task 698 | n_gen =    100, tg =  32.74 t/s, tg_3s =  33.07 t/s
+2.21.309.611 I slot print_timing: id 15 | task 699 | n_gen =    100, tg =  32.74 t/s, tg_3s =  33.07 t/s
+2.22.092.916 I slot print_timing: id  8 | task 690 | prompt eval time =    2596.63 ms /   512 tokens (    5.07 ms per token,   197.18 tokens per second)
+2.22.092.925 I slot print_timing: id  8 | task 690 |        eval time =   16544.06 ms /   128 tokens (  130.27 ms per token,     7.68 tokens per second)
+2.22.092.926 I slot print_timing: id  8 | task 690 |       total time =   19140.70 ms /   640 tokens
+2.22.092.927 I slot print_timing: id  8 | task 690 |    graphs reused =        751
+2.22.092.928 I slot print_timing: id  8 | task 690 |   graph reallocs =          0    /     0        (same size) / (changed size)
+2.22.092.958 I slot      release: id  8 | task 690 | stop processing: n_tokens = 639, truncated = 0
+2.22.093.467 I slot print_timing: id  9 | task 691 | prompt eval time =    2583.53 ms /   512 tokens (    5.05 ms per token,   198.18 tokens per second)
+2.22.093.469 I slot print_timing: id  9 | task 691 |        eval time =   16543.92 ms /   128 tokens (  130.27 ms per token,     7.68 tokens per second)
+2.22.093.470 I slot print_timing: id  9 | task 691 |       total time =   19127.45 ms /   640 tokens
+2.22.093.470 I slot print_timing: id  9 | task 691 |    graphs reused =        751
+2.22.093.470 I slot print_timing: id  9 | task 691 |   graph reallocs =          0    /     0        (same size) / (changed size)
+2.22.093.524 I slot      release: id  9 | task 691 | stop processing: n_tokens = 639, truncated = 0
+2.22.094.024 I slot print_timing: id 10 | task 692 | prompt eval time =    2568.86 ms /   512 tokens (    5.02 ms per token,   199.31 tokens per second)
+2.22.094.030 I slot print_timing: id 10 | task 692 |        eval time =   16543.75 ms /   128 tokens (  130.27 ms per token,     7.68 tokens per second)
+2.22.094.031 I slot print_timing: id 10 | task 692 |       total time =   19112.61 ms /   640 tokens
+2.22.094.032 I slot print_timing: id 10 | task 692 |    graphs reused =        751
+2.22.094.032 I slot print_timing: id 10 | task 692 |   graph reallocs =          0    /     0        (same size) / (changed size)
+2.22.094.126 I slot      release: id 10 | task 692 | stop processing: n_tokens = 639, truncated = 0
+2.22.094.699 I slot print_timing: id 11 | task 693 | prompt eval time =    2553.12 ms /   512 tokens (    4.99 ms per token,   200.54 tokens per second)
+2.22.094.705 I slot print_timing: id 11 | task 693 |        eval time =   16543.76 ms /   128 tokens (  130.27 ms per token,     7.68 tokens per second)
+2.22.094.706 I slot print_timing: id 11 | task 693 |       total time =   19096.88 ms /   640 tokens
+2.22.094.706 I slot print_timing: id 11 | task 693 |    graphs reused =        751
+2.22.094.707 I slot print_timing: id 11 | task 693 |   graph reallocs =          0    /     0        (same size) / (changed size)
+2.22.094.806 I slot      release: id 11 | task 693 | stop processing: n_tokens = 639, truncated = 0
+2.22.128.745 I slot print_timing: id 12 | task 694 | prompt eval time =   14911.04 ms /   512 tokens (   29.12 ms per token,    34.34 tokens per second)
+2.22.128.754 I slot print_timing: id 12 | task 694 |        eval time =    4203.62 ms /   128 tokens (   33.10 ms per token,    30.21 tokens per second)
+2.22.128.755 I slot print_timing: id 12 | task 694 |       total time =   19114.66 ms /   640 tokens
+2.22.128.756 I slot print_timing: id 12 | task 694 |    graphs reused =        751
+2.22.128.756 I slot print_timing: id 12 | task 694 |   graph reallocs =          0    /     0        (same size) / (changed size)
+2.22.128.836 I slot      release: id 12 | task 694 | stop processing: n_tokens = 639, truncated = 0
+2.22.130.500 I slot       select: id 16 | task -1 | selected slot by LRU, n_tokens = 639, t_last = 62528864529
+2.22.130.735 I slot launch_slot_: id 16 | task 828 | processing task, is_child = 0
+2.22.130.852 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.22.276.165 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.22.416.567 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+2.22.682.506 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.22.699.944 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.22.839.781 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.22.980.343 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.23.120.878 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.23.262.295 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.23.402.831 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.23.543.997 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+2.23.809.257 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.23.827.068 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.23.972.090 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.24.118.352 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.24.264.362 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.24.409.878 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.24.555.349 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.24.700.417 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+2.24.846.187 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.24.992.162 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.25.138.246 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.25.284.557 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.25.431.823 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.25.581.225 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.25.728.084 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.25.873.013 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+2.26.019.292 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.26.164.764 I slot       select: id 17 | task -1 | selected slot by LRU, n_tokens = 639, t_last = 62528865183
+2.26.165.009 I slot launch_slot_: id 17 | task 829 | processing task, is_child = 0
+2.26.165.127 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.26.311.493 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.26.457.527 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.26.604.543 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.26.751.446 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.26.899.282 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.27.044.602 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+2.27.190.083 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.27.336.689 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.27.482.853 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.27.628.277 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+2.27.908.606 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.27.931.565 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.28.081.027 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.28.228.022 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.28.374.243 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.28.521.638 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.28.668.612 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.28.814.566 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+2.28.960.300 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.29.105.049 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.29.250.494 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.29.396.040 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.29.542.495 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.29.688.122 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.29.834.997 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.29.981.496 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+2.30.128.988 I slot       select: id 18 | task -1 | selected slot by LRU, n_tokens = 639, t_last = 62528865787
+2.30.129.221 I slot launch_slot_: id 18 | task 830 | processing task, is_child = 0
+2.30.129.341 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.30.274.409 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.30.419.842 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.30.566.256 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.30.711.423 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.30.856.318 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.31.001.961 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.31.146.350 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+2.31.292.178 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.31.437.857 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.31.583.563 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+2.31.858.543 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.31.876.524 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.32.022.933 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.32.168.657 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.32.313.545 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.32.459.505 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.32.605.495 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.32.752.737 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+2.32.898.407 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.33.044.278 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.33.189.608 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.33.337.292 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.33.481.850 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.33.626.957 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.33.773.826 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.33.918.774 I slot       select: id 19 | task -1 | selected slot by LRU, n_tokens = 639, t_last = 62528866326
+2.33.919.008 I slot launch_slot_: id 19 | task 831 | processing task, is_child = 0
+2.33.919.133 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+2.34.064.253 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.34.209.549 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.34.354.165 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.34.500.367 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.34.646.046 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.34.792.951 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.34.939.747 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.35.084.008 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+2.35.230.273 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.35.375.717 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+2.35.650.577 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.35.667.898 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.35.814.069 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.35.960.579 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.36.106.254 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.36.252.220 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.36.397.746 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.36.545.753 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+2.36.691.203 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.36.836.624 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.36.982.611 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.37.128.414 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.37.274.112 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.37.418.929 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.37.563.413 I slot       select: id 20 | task -1 | selected slot by LRU, n_tokens = 639, t_last = 62528899389
+2.37.563.652 I slot launch_slot_: id 20 | task 832 | processing task, is_child = 0
+2.37.563.769 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.37.710.009 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+2.37.855.105 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.38.001.471 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.38.148.019 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.38.292.868 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.38.438.290 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.38.584.505 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.38.729.597 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.38.876.744 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+2.39.022.371 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+2.39.295.498 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.39.313.357 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.39.458.805 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.39.604.245 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.39.752.010 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.39.895.508 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.40.041.018 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.40.186.977 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+2.40.462.014 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.40.479.919 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.40.625.018 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.40.769.499 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.40.918.172 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.42.794.295 I slot print_timing: id 13 | task 697 | prompt eval time =    1658.38 ms /   512 tokens (    3.24 ms per token,   308.74 tokens per second)
+2.42.794.302 I slot print_timing: id 13 | task 697 |        eval time =   24509.40 ms /   128 tokens (  192.99 ms per token,     5.18 tokens per second)
+2.42.794.303 I slot print_timing: id 13 | task 697 |       total time =   26167.77 ms /   640 tokens
+2.42.794.304 I slot print_timing: id 13 | task 697 |    graphs reused =        752
+2.42.794.305 I slot print_timing: id 13 | task 697 |   graph reallocs =          0    /     0        (same size) / (changed size)
+2.42.794.373 I slot      release: id 13 | task 697 | stop processing: n_tokens = 639, truncated = 0
+2.42.795.018 I slot print_timing: id 14 | task 698 | prompt eval time =    1644.95 ms /   512 tokens (    3.21 ms per token,   311.26 tokens per second)
+2.42.795.025 I slot print_timing: id 14 | task 698 |        eval time =   24509.64 ms /   128 tokens (  192.99 ms per token,     5.18 tokens per second)
+2.42.795.026 I slot print_timing: id 14 | task 698 |       total time =   26154.58 ms /   640 tokens
+2.42.795.027 I slot print_timing: id 14 | task 698 |    graphs reused =        752
+2.42.795.028 I slot print_timing: id 14 | task 698 |   graph reallocs =          0    /     0        (same size) / (changed size)
+2.42.795.178 I slot      release: id 14 | task 698 | stop processing: n_tokens = 639, truncated = 0
+2.42.795.691 I slot print_timing: id 15 | task 699 | prompt eval time =    1631.73 ms /   512 tokens (    3.19 ms per token,   313.78 tokens per second)
+2.42.795.697 I slot print_timing: id 15 | task 699 |        eval time =   24509.62 ms /   128 tokens (  192.99 ms per token,     5.18 tokens per second)
+2.42.795.698 I slot print_timing: id 15 | task 699 |       total time =   26141.35 ms /   640 tokens
+2.42.795.699 I slot print_timing: id 15 | task 699 |    graphs reused =        752
+2.42.795.699 I slot print_timing: id 15 | task 699 |   graph reallocs =          0    /     0        (same size) / (changed size)
+2.42.795.800 I slot      release: id 15 | task 699 | stop processing: n_tokens = 639, truncated = 0
+2.43.731.279 I slot       select: id 21 | task -1 | selected slot by LRU, n_tokens = 639, t_last = 62531119844
+2.43.731.506 I slot launch_slot_: id 21 | task 835 | processing task, is_child = 0
+2.43.731.638 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.43.874.113 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.44.015.565 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+2.44.278.342 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.44.295.760 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.44.437.238 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.44.577.147 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.44.717.681 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.44.857.261 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.44.997.906 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.45.138.949 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+2.45.403.026 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.45.420.517 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.45.568.870 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.45.714.017 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.45.863.857 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.46.010.476 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.46.156.501 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.46.302.434 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+2.46.576.988 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.46.720.706 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.46.868.928 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.46.886.804 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.47.032.397 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.47.178.308 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.47.322.824 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.47.467.036 I slot       select: id 22 | task -1 | selected slot by LRU, n_tokens = 639, t_last = 62531120481
+2.47.467.271 I slot launch_slot_: id 22 | task 836 | processing task, is_child = 0
+2.47.467.389 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+2.47.741.802 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.47.887.208 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.48.034.666 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.48.052.120 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.48.198.503 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.48.343.766 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.48.490.339 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.48.636.293 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+2.48.965.308 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.49.110.119 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.49.256.110 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.49.273.702 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.49.419.246 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.49.564.985 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.49.710.750 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.49.857.259 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.50.002.150 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.50.148.055 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+2.50.459.816 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.50.606.801 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.50.624.129 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.50.770.767 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.50.917.484 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.51.063.858 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.51.209.035 I slot       select: id 23 | task -1 | selected slot by LRU, n_tokens = 639, t_last = 62531121046
+2.51.209.268 I slot launch_slot_: id 23 | task 837 | processing task, is_child = 0
+2.51.209.385 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.51.356.656 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+2.51.630.933 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.51.777.207 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.51.794.934 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.51.941.124 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.52.089.233 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.52.235.098 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.52.379.848 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.52.526.092 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+2.52.800.745 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.52.946.548 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.52.963.880 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.53.110.452 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.53.255.174 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.53.400.743 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.53.547.513 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.53.691.295 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.53.838.472 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+2.54.111.031 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.54.128.506 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.54.274.412 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.54.418.955 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.54.566.332 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+2.59.424.444 I slot print_timing: id 16 | task 828 | n_gen =    100, tg =   6.31 t/s, tg_3s =   6.37 t/s
+2.59.424.953 I slot print_timing: id 17 | task 829 | n_gen =    100, tg =   6.31 t/s, tg_3s =   6.37 t/s
+2.59.425.406 I slot print_timing: id 18 | task 830 | n_gen =    100, tg =   6.31 t/s, tg_3s =   6.37 t/s
+2.59.425.902 I slot print_timing: id 19 | task 831 | n_gen =    100, tg =   6.31 t/s, tg_3s =   6.37 t/s
+2.59.456.442 I slot print_timing: id 20 | task 832 | n_gen =    100, tg =  29.82 t/s, tg_3s =  30.13 t/s
+2.59.517.242 I slot print_timing: id 21 | task 835 | n_gen =    101, tg =  33.09 t/s, tg_3s =  33.42 t/s
+2.59.517.746 I slot print_timing: id 22 | task 836 | n_gen =    101, tg =  33.09 t/s, tg_3s =  33.42 t/s
+2.59.518.222 I slot print_timing: id 23 | task 837 | n_gen =    101, tg =  33.10 t/s, tg_3s =  33.43 t/s
+3.00.265.583 I slot print_timing: id 16 | task 828 | prompt eval time =    2665.87 ms /   512 tokens (    5.21 ms per token,   192.06 tokens per second)
+3.00.265.591 I slot print_timing: id 16 | task 828 |        eval time =   16536.34 ms /   128 tokens (  130.21 ms per token,     7.68 tokens per second)
+3.00.265.592 I slot print_timing: id 16 | task 828 |       total time =   19202.20 ms /   640 tokens
+3.00.265.593 I slot print_timing: id 16 | task 828 |    graphs reused =        876
+3.00.265.593 I slot print_timing: id 16 | task 828 |   graph reallocs =          0    /     0        (same size) / (changed size)
+3.00.265.623 I slot      release: id 16 | task 828 | stop processing: n_tokens = 639, truncated = 0
+3.00.266.097 I slot print_timing: id 17 | task 829 | prompt eval time =    2652.74 ms /   512 tokens (    5.18 ms per token,   193.01 tokens per second)
+3.00.266.103 I slot print_timing: id 17 | task 829 |        eval time =   16536.19 ms /   128 tokens (  130.21 ms per token,     7.68 tokens per second)
+3.00.266.104 I slot print_timing: id 17 | task 829 |       total time =   19188.93 ms /   640 tokens
+3.00.266.105 I slot print_timing: id 17 | task 829 |    graphs reused =        876
+3.00.266.105 I slot print_timing: id 17 | task 829 |   graph reallocs =          0    /     0        (same size) / (changed size)
+3.00.266.170 I slot      release: id 17 | task 829 | stop processing: n_tokens = 639, truncated = 0
+3.00.266.652 I slot print_timing: id 18 | task 830 | prompt eval time =    2637.91 ms /   512 tokens (    5.15 ms per token,   194.09 tokens per second)
+3.00.266.658 I slot print_timing: id 18 | task 830 |        eval time =   16536.07 ms /   128 tokens (  130.21 ms per token,     7.68 tokens per second)
+3.00.266.659 I slot print_timing: id 18 | task 830 |       total time =   19173.99 ms /   640 tokens
+3.00.266.660 I slot print_timing: id 18 | task 830 |    graphs reused =        876
+3.00.266.660 I slot print_timing: id 18 | task 830 |   graph reallocs =          0    /     0        (same size) / (changed size)
+3.00.266.689 I slot      release: id 18 | task 830 | stop processing: n_tokens = 639, truncated = 0
+3.00.267.154 I slot print_timing: id 19 | task 831 | prompt eval time =    2622.37 ms /   512 tokens (    5.12 ms per token,   195.24 tokens per second)
+3.00.267.160 I slot print_timing: id 19 | task 831 |        eval time =   16535.93 ms /   128 tokens (  130.20 ms per token,     7.68 tokens per second)
+3.00.267.161 I slot print_timing: id 19 | task 831 |       total time =   19158.30 ms /   640 tokens
+3.00.267.161 I slot print_timing: id 19 | task 831 |    graphs reused =        876
+3.00.267.162 I slot print_timing: id 19 | task 831 |   graph reallocs =          0    /     0        (same size) / (changed size)
+3.00.267.196 I slot      release: id 19 | task 831 | stop processing: n_tokens = 639, truncated = 0
+3.00.299.728 I slot print_timing: id 20 | task 832 | prompt eval time =   15012.06 ms /   512 tokens (   29.32 ms per token,    34.11 tokens per second)
+3.00.299.736 I slot print_timing: id 20 | task 832 |        eval time =    4162.71 ms /   128 tokens (   32.78 ms per token,    30.51 tokens per second)
+3.00.299.737 I slot print_timing: id 20 | task 832 |       total time =   19174.77 ms /   640 tokens
+3.00.299.738 I slot print_timing: id 20 | task 832 |    graphs reused =        876
+3.00.299.739 I slot print_timing: id 20 | task 832 |   graph reallocs =          0    /     0        (same size) / (changed size)
+3.00.299.831 I slot      release: id 20 | task 832 | stop processing: n_tokens = 639, truncated = 0
+3.00.301.563 I slot       select: id 24 | task -1 | selected slot by LRU, n_tokens = 639, t_last = 62545155262
+3.00.301.775 I slot launch_slot_: id 24 | task 966 | processing task, is_child = 0
+3.00.301.899 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.00.444.109 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.00.586.010 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+3.00.851.843 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.00.870.398 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.01.011.079 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.01.154.229 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.01.295.774 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.01.437.296 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.01.582.500 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.01.725.136 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+3.01.991.197 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.02.008.885 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.02.151.842 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.02.297.663 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.02.443.312 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.02.590.584 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.02.738.196 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.02.884.094 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+3.03.159.243 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.03.179.232 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.03.329.450 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.03.478.941 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.03.626.937 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.03.775.765 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.03.923.188 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.04.070.805 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+3.04.218.563 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.04.370.010 I slot       select: id 25 | task -1 | selected slot by LRU, n_tokens = 639, t_last = 62545155795
+3.04.370.256 I slot launch_slot_: id 25 | task 967 | processing task, is_child = 0
+3.04.370.367 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.04.518.392 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.04.667.185 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.04.815.660 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.04.962.219 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.05.111.228 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.05.258.065 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+3.05.406.975 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.05.555.785 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.05.703.106 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.05.851.630 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.05.998.580 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.06.146.208 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.06.293.219 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.06.439.730 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+3.06.587.656 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.06.737.114 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.06.885.187 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.07.033.510 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+3.07.308.020 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.07.327.159 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.07.475.758 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.07.625.915 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.07.773.789 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.07.921.256 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.08.068.817 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.08.216.552 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+3.08.363.782 I slot       select: id 26 | task -1 | selected slot by LRU, n_tokens = 639, t_last = 62545156331
+3.08.364.016 I slot launch_slot_: id 26 | task 968 | processing task, is_child = 0
+3.08.364.134 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.08.511.512 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.08.658.738 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.08.805.948 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.08.952.894 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.09.100.172 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.09.246.748 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.09.393.201 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+3.09.540.848 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.09.686.585 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.09.834.022 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.09.982.540 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.10.130.504 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.10.278.879 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.10.426.987 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.10.572.414 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+3.10.719.870 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.10.869.843 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.11.017.000 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+3.11.292.370 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.11.311.391 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.11.460.228 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.11.608.424 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.11.756.343 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.11.904.049 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.12.051.352 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.12.198.895 I slot       select: id 27 | task -1 | selected slot by LRU, n_tokens = 639, t_last = 62545156903
+3.12.199.111 I slot launch_slot_: id 27 | task 969 | processing task, is_child = 0
+3.12.199.231 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+3.12.346.968 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.12.493.860 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.12.641.050 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.12.788.159 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.12.934.489 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.13.081.523 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.13.229.252 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.13.376.706 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+3.13.525.090 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.13.671.729 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.13.818.556 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.13.966.136 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.14.115.822 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.14.262.582 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.14.410.089 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.14.556.108 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+3.14.743.164 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.14.889.256 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+3.15.162.479 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.15.180.063 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.15.325.951 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.15.472.024 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.15.618.092 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.15.764.341 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.15.909.352 I slot       select: id 28 | task -1 | selected slot by LRU, n_tokens = 639, t_last = 62545189976
+3.15.909.596 I slot launch_slot_: id 28 | task 970 | processing task, is_child = 0
+3.15.909.717 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.16.055.322 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+3.16.200.176 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.16.346.045 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.16.493.472 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.16.640.001 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.16.787.477 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.16.934.002 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.17.078.625 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.17.224.578 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+3.17.372.905 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.17.518.682 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.17.664.736 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.17.810.165 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.17.958.057 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.18.105.287 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.18.250.438 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.18.395.192 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+3.18.541.628 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+3.18.816.861 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.18.834.561 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.18.980.993 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.19.128.110 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.19.273.954 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.21.126.478 I slot print_timing: id 21 | task 835 | prompt eval time =    1681.30 ms /   512 tokens (    3.28 ms per token,   304.53 tokens per second)
+3.21.126.486 I slot print_timing: id 21 | task 835 |        eval time =   24631.29 ms /   128 tokens (  193.95 ms per token,     5.16 tokens per second)
+3.21.126.487 I slot print_timing: id 21 | task 835 |       total time =   26312.59 ms /   640 tokens
+3.21.126.489 I slot print_timing: id 21 | task 835 |    graphs reused =        877
+3.21.126.489 I slot print_timing: id 21 | task 835 |   graph reallocs =          0    /     0        (same size) / (changed size)
+3.21.126.520 I slot      release: id 21 | task 835 | stop processing: n_tokens = 639, truncated = 0
+3.21.127.348 I slot print_timing: id 22 | task 836 | prompt eval time =    1667.20 ms /   512 tokens (    3.26 ms per token,   307.10 tokens per second)
+3.21.127.349 I slot print_timing: id 22 | task 836 |        eval time =   24631.01 ms /   128 tokens (  193.94 ms per token,     5.16 tokens per second)
+3.21.127.350 I slot print_timing: id 22 | task 836 |       total time =   26298.21 ms /   640 tokens
+3.21.127.351 I slot print_timing: id 22 | task 836 |    graphs reused =        877
+3.21.127.351 I slot print_timing: id 22 | task 836 |   graph reallocs =          0    /     0        (same size) / (changed size)
+3.21.127.426 I slot      release: id 22 | task 836 | stop processing: n_tokens = 639, truncated = 0
+3.21.127.931 I slot print_timing: id 23 | task 837 | prompt eval time =    1653.42 ms /   512 tokens (    3.23 ms per token,   309.66 tokens per second)
+3.21.127.937 I slot print_timing: id 23 | task 837 |        eval time =   24631.22 ms /   128 tokens (  193.95 ms per token,     5.16 tokens per second)
+3.21.127.938 I slot print_timing: id 23 | task 837 |       total time =   26284.64 ms /   640 tokens
+3.21.127.939 I slot print_timing: id 23 | task 837 |    graphs reused =        877
+3.21.127.939 I slot print_timing: id 23 | task 837 |   graph reallocs =          0    /     0        (same size) / (changed size)
+3.21.128.091 I slot      release: id 23 | task 837 | stop processing: n_tokens = 639, truncated = 0
+3.22.032.892 I slot       select: id 29 | task -1 | selected slot by LRU, n_tokens = 639, t_last = 62566716176
+3.22.033.113 I slot launch_slot_: id 29 | task 973 | processing task, is_child = 0
+3.22.033.232 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.22.179.779 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.22.326.948 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+3.22.606.816 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.22.627.785 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.22.776.957 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.22.924.690 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.23.071.936 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.23.217.897 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.23.361.216 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.23.504.716 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+3.23.771.403 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.23.791.688 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.23.938.471 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.24.087.341 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.24.234.724 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.24.382.759 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.24.530.881 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.24.680.799 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+3.24.956.145 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.24.975.546 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.25.124.239 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.25.271.574 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.25.420.475 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.25.568.616 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.25.717.417 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.25.864.121 I slot       select: id 30 | task -1 | selected slot by LRU, n_tokens = 639, t_last = 62566716720
+3.25.864.349 I slot launch_slot_: id 30 | task 974 | processing task, is_child = 0
+3.25.864.470 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+3.26.145.962 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.26.298.059 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.26.456.503 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.26.477.876 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.26.638.294 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.26.792.579 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.26.944.131 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.27.093.280 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+3.27.372.615 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.27.521.441 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.27.670.420 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.27.689.717 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.27.838.072 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.27.986.987 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.28.134.320 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.28.282.235 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+3.28.559.325 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.28.707.985 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.28.856.970 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.28.877.070 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.29.027.012 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.29.175.236 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.29.324.946 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.29.473.020 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.29.625.882 I slot       select: id 31 | task -1 | selected slot by LRU, n_tokens = 639, t_last = 62566717253
+3.29.626.109 I slot launch_slot_: id 31 | task 975 | processing task, is_child = 0
+3.29.626.227 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.29.776.570 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+3.30.060.626 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.30.210.456 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.30.229.955 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.30.378.372 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.30.536.732 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.30.689.210 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.30.847.403 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.31.000.484 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+3.31.325.946 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.31.471.620 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.31.489.038 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.31.634.015 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.31.779.549 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.31.924.856 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.32.069.782 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.32.215.797 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 488.831 MiB)
+3.32.489.885 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.32.634.787 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.32.652.316 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.32.805.528 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.32.952.664 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.33.098.562 W srv         alloc:  - making room for prompt cache entry, removing oldest entry (size = 339.205 MiB)
+3.37.922.821 I slot print_timing: id 24 | task 966 | n_gen =    100, tg =   6.23 t/s, tg_3s =   6.29 t/s
+3.37.923.298 I slot print_timing: id 25 | task 967 | n_gen =    100, tg =   6.23 t/s, tg_3s =   6.29 t/s
+3.37.923.802 I slot print_timing: id 26 | task 968 | n_gen =    100, tg =   6.23 t/s, tg_3s =   6.29 t/s
+3.37.924.265 I slot print_timing: id 27 | task 969 | n_gen =    100, tg =   6.23 t/s, tg_3s =   6.29 t/s
+3.37.954.756 I slot print_timing: id 28 | task 970 | n_gen =    100, tg =  29.79 t/s, tg_3s =  30.09 t/s
+3.38.015.077 I slot print_timing: id 29 | task 973 | n_gen =    101, tg =  33.11 t/s, tg_3s =  33.45 t/s
+3.38.015.559 I slot print_timing: id 30 | task 974 | n_gen =    101, tg =  33.12 t/s, tg_3s =  33.45 t/s
+3.38.016.031 I slot print_timing: id 31 | task 975 | n_gen =    101, tg =  33.12 t/s, tg_3s =  33.45 t/s
+3.38.769.292 I slot print_timing: id 24 | task 966 | prompt eval time =    2610.88 ms /   512 tokens (    5.10 ms per token,   196.10 tokens per second)
+3.38.769.300 I slot print_timing: id 24 | task 966 |        eval time =   16738.48 ms /   128 tokens (  131.80 ms per token,     7.59 tokens per second)
+3.38.769.301 I slot print_timing: id 24 | task 966 |       total time =   19349.36 ms /   640 tokens
+3.38.769.302 I slot print_timing: id 24 | task 966 |    graphs reused =       1001
+3.38.769.303 I slot print_timing: id 24 | task 966 |   graph reallocs =          0    /     0        (same size) / (changed size)
+3.38.769.331 I slot      release: id 24 | task 966 | stop processing: n_tokens = 639, truncated = 0
+3.38.769.836 I slot print_timing: id 25 | task 967 | prompt eval time =    2596.71 ms /   512 tokens (    5.07 ms per token,   197.17 tokens per second)
+3.38.769.837 I slot print_timing: id 25 | task 967 |        eval time =   16738.37 ms /   128 tokens (  131.80 ms per token,     7.59 tokens per second)
+3.38.769.838 I slot print_timing: id 25 | task 967 |       total time =   19335.07 ms /   640 tokens
+3.38.769.839 I slot print_timing: id 25 | task 967 |    graphs reused =       1001
+3.38.769.839 I slot print_timing: id 25 | task 967 |   graph reallocs =          0    /     0        (same size) / (changed size)
+3.38.769.948 I slot      release: id 25 | task 967 | stop processing: n_tokens = 639, truncated = 0
+3.38.770.407 I slot print_timing: id 26 | task 968 | prompt eval time =    2581.97 ms /   512 tokens (    5.04 ms per token,   198.30 tokens per second)
+3.38.770.413 I slot print_timing: id 26 | task 968 |        eval time =   16738.25 ms /   128 tokens (  131.80 ms per token,     7.59 tokens per second)
+3.38.770.414 I slot print_timing: id 26 | task 968 |       total time =   19320.22 ms /   640 tokens
+3.38.770.414 I slot print_timing: id 26 | task 968 |    graphs reused =       1001
+3.38.770.415 I slot print_timing: id 26 | task 968 |   graph reallocs =          0    /     0        (same size) / (changed size)
+3.38.770.473 I slot      release: id 26 | task 968 | stop processing: n_tokens = 639, truncated = 0
+3.38.770.950 I slot print_timing: id 27 | task 969 | prompt eval time =    2566.91 ms /   512 tokens (    5.01 ms per token,   199.46 tokens per second)
+3.38.770.957 I slot print_timing: id 27 | task 969 |        eval time =   16738.11 ms /   128 tokens (  131.80 ms per token,     7.59 tokens per second)
+3.38.770.958 I slot print_timing: id 27 | task 969 |       total time =   19305.02 ms /   640 tokens
+3.38.770.958 I slot print_timing: id 27 | task 969 |    graphs reused =       1001
+3.38.770.959 I slot print_timing: id 27 | task 969 |   graph reallocs =          0    /     0        (same size) / (changed size)
+3.38.771.057 I slot      release: id 27 | task 969 | stop processing: n_tokens = 639, truncated = 0
+3.38.803.629 I slot print_timing: id 28 | task 970 | prompt eval time =   15150.10 ms /   512 tokens (   29.59 ms per token,    33.80 tokens per second)
+3.38.803.638 I slot print_timing: id 28 | task 970 |        eval time =    4171.79 ms /   128 tokens (   32.85 ms per token,    30.44 tokens per second)
+3.38.803.639 I slot print_timing: id 28 | task 970 |       total time =   19321.90 ms /   640 tokens
+3.38.803.640 I slot print_timing: id 28 | task 970 |    graphs reused =       1001
+3.38.803.641 I slot print_timing: id 28 | task 970 |   graph reallocs =          0    /     0        (same size) / (changed size)
+3.38.803.670 I slot      release: id 28 | task 970 | stop processing: n_tokens = 639, truncated = 0
+3.38.835.109 I slot print_timing: id 29 | task 973 | prompt eval time =    1648.69 ms /   512 tokens (    3.22 ms per token,   310.55 tokens per second)
+3.38.835.117 I slot print_timing: id 29 | task 973 |        eval time =    3839.89 ms /   128 tokens (   30.24 ms per token,    33.07 tokens per second)
+3.38.835.118 I slot print_timing: id 29 | task 973 |       total time =    5488.58 ms /   640 tokens
+3.38.835.119 I slot print_timing: id 29 | task 973 |    graphs reused =       1001
+3.38.835.120 I slot print_timing: id 29 | task 973 |   graph reallocs =          0    /     0        (same size) / (changed size)
+3.38.835.678 I slot      release: id 29 | task 973 | stop processing: n_tokens = 639, truncated = 0
+3.38.836.144 I slot print_timing: id 30 | task 974 | prompt eval time =    1634.86 ms /   512 tokens (    3.19 ms per token,   313.18 tokens per second)
+3.38.836.151 I slot print_timing: id 30 | task 974 |        eval time =    3840.25 ms /   128 tokens (   30.24 ms per token,    33.07 tokens per second)
+3.38.836.152 I slot print_timing: id 30 | task 974 |       total time =    5475.11 ms /   640 tokens
+3.38.836.153 I slot print_timing: id 30 | task 974 |    graphs reused =       1001
+3.38.836.153 I slot print_timing: id 30 | task 974 |   graph reallocs =          0    /     0        (same size) / (changed size)
+3.38.836.186 I slot      release: id 30 | task 974 | stop processing: n_tokens = 639, truncated = 0
+3.38.836.657 I slot print_timing: id 31 | task 975 | prompt eval time =    1621.10 ms /   512 tokens (    3.17 ms per token,   315.83 tokens per second)
+3.38.836.664 I slot print_timing: id 31 | task 975 |        eval time =    3840.09 ms /   128 tokens (   30.24 ms per token,    33.07 tokens per second)
+3.38.836.664 I slot print_timing: id 31 | task 975 |       total time =    5461.19 ms /   640 tokens
+3.38.836.665 I slot print_timing: id 31 | task 975 |    graphs reused =       1001
+3.38.836.666 I slot print_timing: id 31 | task 975 |   graph reallocs =          0    /     0        (same size) / (changed size)
+3.38.836.706 I slot      release: id 31 | task 975 | stop processing: n_tokens = 639, truncated = 0
+3.39.743.184 I srv    operator(): operator(): cleaning up before exit...

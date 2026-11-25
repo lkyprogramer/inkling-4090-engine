@@ -1,0 +1,14 @@
+[package]
+name = "astral-hw"
+description = "Astral: hardware probing, capability tables and startup microbenchmarks."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+astral-core.workspace = true
+astral-gpu.workspace = true
+astral-kernels.workspace = true
+serde.workspace = true
+serde_json.workspace = true

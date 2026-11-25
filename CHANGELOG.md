@@ -1,0 +1,26 @@
+# Changelog
+
+All notable changes to Astral Inference Server are documented here.
+
+## [Unreleased]
+
+### Added
+
+- OpenAI-compatible server (`astral serve`): `/v1/completions`, `/v1/chat/completions` (streaming, stop strings, reasoning output, tool calls), `/v1/models`, `/tokenize`, `/health`.
+- Inkling 2 Mini chat template and tokenizer, matching reference token ids.
+- Speculative decoding with the Inkling 2 Mini DSpark draft: GPU-side acceptance, short-conv rollback, one CUDA graph per round, adaptive draft length.
+- Int8 tensor-core GEMV for 1–8 tokens; grouped MoE GEMV for small batches.
+- Fused kernels: depth-mix + RMSNorm + quantisation, attention merge + output gate, router GEMV + top-k, batched loop controllers.
+- Programmatic dependent launch on compute capability 9.0+.
+- Qwen3.8-27B (MXFP4): native MXFP4 decode, wgmma prefill on Hopper.
+- Benchmark client and prompt sets (`bench/serving/`).
+
+### Performance (H100 PCIe, Inkling 2 Mini, single stream)
+
+- Decode: 172.0 tok/s (1.32× vLLM) without a draft; 233.3 tok/s (1.11× vLLM) with the DSpark draft.
+
+## [0.0.1]
+
+### Added
+
+- Workspace, GPU wrapper, memory arena, kernel build pipeline, hardware probing, self-tests.
