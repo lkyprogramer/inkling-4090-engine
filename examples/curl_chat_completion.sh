@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 Synthetic Minds LTD
 # Chat completion against a local Astral server; set ASTRAL_URL to use another address.
 set -euo pipefail

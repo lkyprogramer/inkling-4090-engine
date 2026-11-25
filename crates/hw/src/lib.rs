@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: Apache-2.0
 // Copyright (c) 2026 Synthetic Minds LTD
 //! `astral-hw`: builds a [`SystemReport`] from the CUDA driver (authoritative) and NVML
 //! (optional), and optionally measures memory bandwidth (spec 01 §3, §6).

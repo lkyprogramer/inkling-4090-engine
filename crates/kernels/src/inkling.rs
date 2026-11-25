@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: Apache-2.0
 // Copyright (c) 2026 Synthetic Minds LTD
 //! Typed launchers for `cu/inkling.cu`: the Inkling 2 Mini decode operations. Every launcher
 //! checks buffer sizes before launching; device-side indices (token, position) are clamped by

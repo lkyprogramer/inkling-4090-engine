@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 Synthetic Minds LTD
 #
 # Astral benchmark harness, baseline v0 (spec 08 §3): llama.cpp on the same GGUF file

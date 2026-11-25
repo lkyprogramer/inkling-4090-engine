@@ -97,14 +97,14 @@ Visit our [documentation](docs/README.md) to learn more.
 
 | | Developer | Enterprise |
 |---|---|---|
-| Licence | AGPL-3.0, free | Commercial |
+| Licence | Apache-2.0, free | Commercial |
 | Who it is for | Individuals, researchers, and organisations running it internally | Organisations deploying at scale |
 | Deployment | One node (one GPU today; multiple GPUs on one node planned) | Multi-node and disaggregated serving |
 | Engine, kernels, OpenAI-compatible server, speculative decoding | ✅ | ✅ |
 | Custom deployments | — | ✅ |
 | Support | Community (GitHub) | Commercial support |
 
-This repository is the Developer edition. A commercial licence is also available for the Developer edition, for organisations that cannot adopt AGPL-3.0 or that embed or host modified versions privately. For Enterprise, visit [syntheticmindslab.com](https://www.syntheticmindslab.com/astral).
+This repository is the Developer edition. For Enterprise, visit [syntheticmindslab.com](https://www.syntheticmindslab.com/astral).
 
 ## Contributing
 
@@ -135,4 +135,4 @@ If you use Astral Inference Server for your research, please cite it:
 
 ## License
 
-Copyright (c) 2026 Synthetic Minds LTD. Astral Inference Server is licensed under the GNU Affero General Public License v3.0 only (`AGPL-3.0-only`); see [LICENSE](LICENSE) and [NOTICE](NOTICE). Commercial licences, for use without the AGPL obligations, are available from Synthetic Minds LTD.
+Copyright (c) 2026 Synthetic Minds LTD. Astral Inference Server is licensed under the Apache License 2.0 (`Apache-2.0`); see [LICENSE](LICENSE) and [NOTICE](NOTICE). "Astral" and "Astral Inference Server" are trademarks of Synthetic Minds LTD.

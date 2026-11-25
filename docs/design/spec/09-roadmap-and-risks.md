@@ -15,8 +15,7 @@ Multi-GPU serving on a single node belongs to the open-source developer edition 
 
 ## 2. Editions
 
-- **Developer edition (this repository, AGPL-3.0-only):** the engine, all kernels, the OpenAI-compatible server, speculative decoding, metrics; one node with one or more GPUs. Free for individuals and for organisations using it internally.
-- **Commercial licence:** the same code without AGPL obligations, for organisations that cannot adopt AGPL or that embed or host modified versions privately.
+- **Developer edition (this repository, Apache-2.0):** the engine, all kernels, the OpenAI-compatible server, speculative decoding, metrics; one node with one or more GPUs. Free for any use, commercial included.
 - **Enterprise edition (separate, commercially licensed):** everything in the developer edition, plus multi-node and disaggregated serving, custom deployments and support.
 
 ## 3. Technical risks

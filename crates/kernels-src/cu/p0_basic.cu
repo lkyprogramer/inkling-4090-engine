@@ -11,7 +11,7 @@
 #else
 #define PDL_WAIT() do {} while (0)
 #endif
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: Apache-2.0
 // Copyright (c) 2026 Synthetic Minds LTD
 //
 // Astral P0 kernels (family F80, portable CUDA C++):

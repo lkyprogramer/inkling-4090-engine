@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: Apache-2.0
 // Copyright (c) 2026 Synthetic Minds LTD
 //! Compiles every `cu/*.cu` file into one fatbin per file with explicit per-architecture
 //! cubins (`-gencode arch=compute_X,code=sm_X`; never `-arch=sm_Xa`, spec 01 §7) and

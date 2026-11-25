@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: Apache-2.0
 // Copyright (c) 2026 Synthetic Minds LTD
 //! The engine thread: owns the GPU session (and the DSpark draft), runs one request at a
 //! time from a bounded queue and streams tokens back over a per-request channel. A dropped

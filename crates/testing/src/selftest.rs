@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: Apache-2.0
 // Copyright (c) 2026 Synthetic Minds LTD
 //! GPU self-test (spec 08 L2/L3): each kernel against its CPU reference, the CPU and
 //! CUDA backends on identical code, the VMM arena, and CUDA-graph replay vs eager.

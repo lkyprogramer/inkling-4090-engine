@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: Apache-2.0
 // Copyright (c) 2026 Synthetic Minds LTD
 //
 // MXFP4 x FP16 GEMV/skinny-GEMM on tensor cores (ADR-0007 step 1; sm_80 and newer).

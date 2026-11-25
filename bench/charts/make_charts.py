@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 Synthetic Minds LTD
 """Speedup charts and result tables for Inkling 2 Mini on an H100 PCIe.
 

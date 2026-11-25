@@ -29,4 +29,4 @@ cargo test                         # CPU tests (no GPU needed)
 
 ## Licensing of contributions
 
-Astral is licensed under `AGPL-3.0-only` and is also offered under commercial licences. To make that possible, contributors agree that Synthetic Minds LTD may distribute their contributions under both. Please state this agreement in your first pull request.
+Astral is licensed under `Apache-2.0`, and contributions are accepted under the same licence (section 5 of the License). Sign off every commit (`git commit -s`) to certify the [Developer Certificate of Origin](https://developercertificate.org/).

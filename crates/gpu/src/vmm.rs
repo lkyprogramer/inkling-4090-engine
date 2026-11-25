@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: Apache-2.0
 // Copyright (c) 2026 Synthetic Minds LTD
 //! Virtual memory management (spec 04 §5): reserve one large device address range,
 //! then map physical memory into it on demand. Addresses never move, which is what

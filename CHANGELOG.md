@@ -4,6 +4,10 @@ All notable changes to Astral Inference Server are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- Relicensed from AGPL-3.0-only to Apache-2.0. Releases up to and including 2.5 remain available under AGPL-3.0-only.
+
 ### Added
 
 - OpenAI-compatible server (`astral serve`): `/v1/completions`, `/v1/chat/completions` (streaming, stop strings, reasoning output, tool calls), `/v1/models`, `/tokenize`, `/health`.
