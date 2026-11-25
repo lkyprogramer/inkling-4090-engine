@@ -38,7 +38,7 @@ Astral is fast with:
 
 - Hand-written CUDA kernels for every operator, verified layer by layer against a reference implementation
 - CUDA graphs for every decode step and every speculative round, with **programmatic dependent launch** overlapping kernel launches on Hopper
-- Quantised weights end to end: Q8_0, NVFP4 and MXFP4 GEMVs, with int8 **tensor-core GEMVs** for small batches and wgmma GEMMs for prefill
+- Low-precision weights end to end, with int8 **tensor-core GEMVs** for small batches and wgmma GEMMs for prefill
 - Fused kernels: depth-mix + RMSNorm + quantisation, attention merge + output gate, router GEMV + top-k, batched loop controllers
 - **Speculative decoding** with the model's own DSpark draft, GPU-side acceptance, short-conv state rollback and an **adaptive draft length**
 - Grouped MoE kernels that read each used expert once per batch
@@ -47,13 +47,13 @@ Astral is flexible and easy to use with:
 
 - An OpenAI-compatible API server: `/v1/completions`, `/v1/chat/completions`, streaming, stop strings, reasoning output and tool calls
 - The checkpoint's own tokenizer and chat template, matching reference token ids exactly
-- GGUF and safetensors loading
+- Loads native safetensors checkpoints directly, as well as GGUF files
 - A bounded request queue with cancel-on-disconnect
 
 Astral currently supports:
 
-- Inkling 2 Mini ([`Inkling-2-Mini-Astral-GGUF`](https://huggingface.co/synthetic-minds/Inkling-2-Mini-Astral-GGUF), Q4_K_M), with or without its DSpark draft
-- Qwen3.8-27B (MXFP4 safetensors), from the command line
+- Inkling 2 Mini, with or without its DSpark draft
+- Qwen3.8-27B, from the command line
 
 Support for more models is coming soon. Find the full list of supported models [here](docs/models/supported_models.md).
 
@@ -81,10 +81,10 @@ ASTRAL_CUDA_ARCHS=80,90a cargo build --release
 ./target/release/astral selftest      # kernel self-tests on your GPU
 ```
 
-Serve Inkling 2 Mini with its DSpark draft:
+Serve Inkling 2 Mini with its DSpark draft, straight from the checkpoint directory:
 
 ```bash
-./target/release/astral serve Inkling-2-Mini-Astral-Q-Q4_K_M.gguf --checkpoint Inkling-2-Mini/
+./target/release/astral serve Inkling-2-Mini/
 ```
 
 Visit our [documentation](docs/README.md) to learn more.

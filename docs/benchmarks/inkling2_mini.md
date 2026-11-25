@@ -7,7 +7,7 @@ Single-stream decode speed of Astral, vLLM and SGLang serving Inkling 2 Mini on 
 | | |
 |---|---|
 | GPU | NVIDIA H100 PCIe 80 GB, CUDA 12.8 driver |
-| Astral | `astral serve`, Inkling 2 Mini `UD-Q4_K_XL` GGUF, defaults (adaptive DSpark, at most 6 drafts) |
+| Astral | `astral serve`, Inkling 2 Mini, defaults (adaptive DSpark, at most 6 drafts) |
 | vLLM | `vllm/vllm-openai:nightly` (0.34.0rc1), native checkpoint, `--reasoning-parser inkling`; Python frontend and Rust frontend (`VLLM_USE_RUST_FRONTEND=1`); MTP: official DSpark config, 7 drafts |
 | SGLang | `lmsysorg/sglang:inkling-2-mini`, native checkpoint; MTP: `--speculative-algorithm DSPARK` (7 drafts) |
 | Workload | One request at a time; streaming `/v1/completions` on the chat-template token ids; 512 output tokens; greedy; `ignore_eos`; context 8,192 |
@@ -54,7 +54,7 @@ On these 28–61-token prompts, Astral's server returns the first token in 64–
 ## Reproduce
 
 ```bash
-astral serve Inkling-2-Mini-UD-Q4_K_XL.gguf --checkpoint Inkling-2-Mini/ &
+astral serve Inkling-2-Mini/ &
 python bench/serving/benchmark_serving.py --base-url http://localhost:8000 \
     --prompts bench/serving/prompts_set_a.json --save-ids set_a.ids.json --label astral
 ```

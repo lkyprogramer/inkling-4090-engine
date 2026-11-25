@@ -2,7 +2,7 @@
 # Copyright (c) 2026 Synthetic Minds LTD
 """Chat with an Astral server through the OpenAI Python client (pip install openai).
 
-    astral serve Inkling-2-Mini-UD-Q4_K_XL.gguf --checkpoint Inkling-2-Mini/
+    astral serve Inkling-2-Mini/
     python examples/openai_chat_completion_client.py
 """
 

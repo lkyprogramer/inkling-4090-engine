@@ -93,7 +93,7 @@ impl Engine {
 
 fn load(cfg: &EngineConfig) -> Result<Session> {
     let ctx = astral_gpu::Context::new(astral_gpu::Device::get(0)?)?;
-    let g = astral_loader::Gguf::open(&cfg.gguf)?;
+    let g = astral_loader::open_model(&cfg.gguf)?;
     let t = std::time::Instant::now();
     let w = Weights::load(&ctx, &g)?;
     eprintln!("astral: loaded {:.2} GB of weights in {:.1} s", w.bytes as f64 / 1e9, t.elapsed().as_secs_f64());
