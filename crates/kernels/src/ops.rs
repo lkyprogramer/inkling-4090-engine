@@ -81,10 +81,10 @@ impl RmsNormF32 {
         if x.dlen() < n || y.dlen() < n {
             return Err(invalid(format!("rmsnorm: x.len {} / y.len {} < rows*cols {n}", x.dlen(), y.dlen())));
         }
-        if let Some(w) = weight {
-            if w.dlen() < cols as usize {
-                return Err(invalid(format!("rmsnorm: weight.len {} < cols {cols}", w.dlen())));
-            }
+        if let Some(w) = weight
+            && w.dlen() < cols as usize
+        {
+            return Err(invalid(format!("rmsnorm: weight.len {} < cols {cols}", w.dlen())));
         }
         let (mut px, mut pw, mut py) = (x.dptr(), weight.map_or(0, |w| w.dptr()), y.dptr());
         let (mut r, mut c, mut e) = (rows, cols, eps);

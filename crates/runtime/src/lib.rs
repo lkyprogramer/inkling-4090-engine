@@ -172,10 +172,10 @@ fn enqueue(cmd: Command, waiting: &mut VecDeque<Seq>, shutting_down: &mut bool) 
 
 fn engine_loop<M: StepModel>(mut model: M, cfg: EngineConfig, rx: Receiver<Command>) -> EngineStats {
     let mut stats = EngineStats::default();
-    if let Some(core) = cfg.pin_core {
-        if let Some(id) = core_affinity::get_core_ids().and_then(|ids| ids.into_iter().find(|c| c.id == core)) {
-            stats.pinned = core_affinity::set_for_current(id);
-        }
+    if let Some(core) = cfg.pin_core
+        && let Some(id) = core_affinity::get_core_ids().and_then(|ids| ids.into_iter().find(|c| c.id == core))
+    {
+        stats.pinned = core_affinity::set_for_current(id);
     }
     let mut waiting: VecDeque<Seq> = VecDeque::new();
     let mut running: Vec<Seq> = Vec::new();

@@ -3,6 +3,7 @@ name = "astral-kernels-src"
 description = "Astral: CUDA kernel sources, compiled to per-architecture fatbins at build time and embedded."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 build = "build.rs"

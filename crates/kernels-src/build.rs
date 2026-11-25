@@ -86,12 +86,12 @@ fn main() {
         }
     };
 
-    let mut gen = String::new();
-    writeln!(gen, "/// (module name, fatbin image) for every compiled `cu/*.cu` file.").unwrap();
-    writeln!(gen, "pub static FATBINS: &[(&str, &[u8])] = &[\n{table}];").unwrap();
-    writeln!(gen, "/// SM targets embedded in every fatbin (empty when nvcc was unavailable).").unwrap();
-    writeln!(gen, "pub const BUILT_ARCHS: &[&str] = &{built_archs:?};").unwrap();
-    writeln!(gen, "/// `nvcc --version` release line used for this build.").unwrap();
-    writeln!(gen, "pub const NVCC_VERSION: &str = {version:?};").unwrap();
-    fs::write(out.join("fatbins.rs"), gen).unwrap();
+    let mut generated = String::new();
+    writeln!(generated, "/// (module name, fatbin image) for every compiled `cu/*.cu` file.").unwrap();
+    writeln!(generated, "pub static FATBINS: &[(&str, &[u8])] = &[\n{table}];").unwrap();
+    writeln!(generated, "/// SM targets embedded in every fatbin (empty when nvcc was unavailable).").unwrap();
+    writeln!(generated, "pub const BUILT_ARCHS: &[&str] = &{built_archs:?};").unwrap();
+    writeln!(generated, "/// `nvcc --version` release line used for this build.").unwrap();
+    writeln!(generated, "pub const NVCC_VERSION: &str = {version:?};").unwrap();
+    fs::write(out.join("fatbins.rs"), generated).unwrap();
 }

@@ -74,22 +74,22 @@ fn tool_args(f: &Value) -> Result<Map<String, Value>, String> {
 pub fn render(messages: &Value, tools: Option<&Value>, effort: Option<&Value>) -> Result<String, String> {
     let msgs = messages.as_array().ok_or("messages must be an array")?;
     let mut out = String::new();
-    if let Some(Value::Array(ts)) = tools {
-        if !ts.is_empty() {
-            let mut specs = Vec::new();
-            for t in ts {
-                let f = t.get("function").unwrap_or(t);
-                let mut spec = Map::new();
-                spec.insert("description".into(), Value::String(str_of(f, "description").unwrap_or("").into()));
-                spec.insert("name".into(), f.get("name").cloned().unwrap_or(Value::Null));
-                let params = f.get("parameters").filter(|p| truthy(Some(p))).cloned().unwrap_or_else(|| Value::Object(Map::new()));
-                spec.insert("parameters".into(), params);
-                spec.insert("type".into(), Value::String(str_of(t, "type").unwrap_or("function").into()));
-                specs.push(Value::Object(spec));
-            }
-            // serde_json maps are sorted by key: the template's tojson(sort_keys=true), compact.
-            out.push_str(&format!("{MESSAGE_SYSTEM}tool_declare<|content_xml|>{}{END_MESSAGE}", Value::Array(specs)));
+    if let Some(Value::Array(ts)) = tools
+        && !ts.is_empty()
+    {
+        let mut specs = Vec::new();
+        for t in ts {
+            let f = t.get("function").unwrap_or(t);
+            let mut spec = Map::new();
+            spec.insert("description".into(), Value::String(str_of(f, "description").unwrap_or("").into()));
+            spec.insert("name".into(), f.get("name").cloned().unwrap_or(Value::Null));
+            let params = f.get("parameters").filter(|p| truthy(Some(p))).cloned().unwrap_or_else(|| Value::Object(Map::new()));
+            spec.insert("parameters".into(), params);
+            spec.insert("type".into(), Value::String(str_of(t, "type").unwrap_or("function").into()));
+            specs.push(Value::Object(spec));
         }
+        // serde_json maps are sorted by key: the template's tojson(sort_keys=true), compact.
+        out.push_str(&format!("{MESSAGE_SYSTEM}tool_declare<|content_xml|>{}{END_MESSAGE}", Value::Array(specs)));
     }
     let mut effort_done = false;
     for m in msgs {
@@ -112,19 +112,19 @@ pub fn render(messages: &Value, tools: Option<&Value>, effort: Option<&Value>) -
                 for prev in msgs {
                     if prev.get("role").and_then(|r| r.as_str()) == Some("assistant") {
                         for tc in prev.get("tool_calls").and_then(|t| t.as_array()).into_iter().flatten() {
-                            if tc.get("id").and_then(|x| x.as_str()) == Some(id) {
-                                if let Some(n) = tc.get("function").and_then(|f| f.get("name")).and_then(|n| n.as_str()) {
-                                    rtok.push_str(n);
-                                }
+                            if tc.get("id").and_then(|x| x.as_str()) == Some(id)
+                                && let Some(n) = tc.get("function").and_then(|f| f.get("name")).and_then(|n| n.as_str())
+                            {
+                                rtok.push_str(n);
                             }
                         }
                     }
                 }
             }
-        } else if role == "assistant" {
-            if let Some(n) = str_of(m, "name") {
-                rtok.push_str(n);
-            }
+        } else if role == "assistant"
+            && let Some(n) = str_of(m, "name")
+        {
+            rtok.push_str(n);
         }
         let assistant = role == "assistant";
         let has_tools = truthy(m.get("tool_calls"));

@@ -3,6 +3,7 @@ name = "astral-model"
 description = "Astral: model implementations (Inkling 2 Mini first) on top of the kernels."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 
