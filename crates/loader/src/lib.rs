@@ -307,10 +307,10 @@ impl Gguf {
                 return Err(bad(format!("tensors {} and {} overlap", tensors[w[0].2].name, tensors[w[1].2].name)));
             }
         }
-        if let Some(&(_, end, i)) = spans.last() {
-            if data_offset.checked_add(end).is_none_or(|e| e > file_len) {
-                return Err(bad(format!("tensor {} extends past end of file", tensors[i].name)));
-            }
+        if let Some(&(_, end, i)) = spans.last()
+            && data_offset.checked_add(end).is_none_or(|e| e > file_len)
+        {
+            return Err(bad(format!("tensor {} extends past end of file", tensors[i].name)));
         }
 
         Ok(Self { path, version, metadata, tensors, alignment, data_offset, file_len, meta_index, tensor_index, source: Source::File(file) })

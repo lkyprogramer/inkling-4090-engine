@@ -3,6 +3,7 @@ name = "astral-obs"
 description = "Astral: Prometheus and OpenTelemetry metrics, tracing."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 

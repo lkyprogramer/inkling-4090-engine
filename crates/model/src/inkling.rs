@@ -1086,10 +1086,10 @@ fn forward(
         if pos0 != u32::MAX && ntok >= 1 && slot >= DIAG_LIMIT.load(std::sync::atomic::Ordering::Relaxed) {
             return Ok(());
         }
-        if let Some(f) = io.feats.as_deref_mut() {
-            if let Some(t) = taps.iter().position(|&v| v == visit) {
-                f.copy_range_from_async(t * s.tmax * d, &s.cur, 0, td, ex.st)?;
-            }
+        if let Some(f) = io.feats.as_deref_mut()
+            && let Some(t) = taps.iter().position(|&v| v == visit)
+        {
+            f.copy_range_from_async(t * s.tmax * d, &s.cur, 0, td, ex.st)?;
         }
         visit += 1;
         let mut hist = io.hist.as_deref_mut().map(|h| Hist { buf: &mut h[slot], rows: hist_rows });

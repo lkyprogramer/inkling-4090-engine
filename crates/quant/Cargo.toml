@@ -3,6 +3,7 @@ name = "astral-quant"
 description = "Astral: GGML quantisation types and CPU reference dequantisation."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 

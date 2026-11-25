@@ -92,10 +92,10 @@ pub fn run(ctx: &Arc<Context>, caps: &Capabilities) -> Result<BenchResult> {
 
     let fraction = caps.dram_bandwidth_gbps_derived.map(|d| read_best / d);
     let mut warnings = Vec::new();
-    if let Some(f) = fraction {
-        if f < 0.6 {
-            warnings.push(format!("measured read bandwidth is {:.0}% of the clock-derived figure: the GPU may be throttled or in a low power state", f * 100.0));
-        }
+    if let Some(f) = fraction
+        && f < 0.6
+    {
+        warnings.push(format!("measured read bandwidth is {:.0}% of the clock-derived figure: the GPU may be throttled or in a low power state", f * 100.0));
     }
     Ok(BenchResult {
         buffer_bytes: bytes as u64,
@@ -144,12 +144,10 @@ fn store_cache(cache: &Cache) {
 /// Returns a cached result for `key`, or measures, stores and returns a fresh one.
 pub fn run_cached(ctx: &Arc<Context>, caps: &Capabilities, key: &str, fresh: bool) -> Result<BenchResult> {
     let mut cache = load_cache();
-    if !fresh {
-        if let Some(hit) = cache.get(key) {
-            let mut r = hit.clone();
-            r.from_cache = true;
-            return Ok(r);
-        }
+    if !fresh && let Some(hit) = cache.get(key) {
+        let mut r = hit.clone();
+        r.from_cache = true;
+        return Ok(r);
     }
     let r = run(ctx, caps)?;
     cache.insert(key.to_string(), r.clone());

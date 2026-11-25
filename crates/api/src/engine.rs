@@ -178,10 +178,10 @@ fn run_job(s: &mut Session, job: &Job) -> Result<()> {
         }
         fin
     };
-    if let Some(f) = finish {
-        if f != "cancelled" {
-            let _ = job.tx.send(Event::Done { finish: f });
-        }
+    if let Some(f) = finish
+        && f != "cancelled"
+    {
+        let _ = job.tx.send(Event::Done { finish: f });
     }
     Ok(())
 }

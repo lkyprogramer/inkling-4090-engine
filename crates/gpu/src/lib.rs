@@ -18,8 +18,8 @@ macro_rules! api_table {
             #[allow(non_snake_case)]
             pub(crate) unsafe fn load(lib: &libloading::Library) -> std::result::Result<Self, String> {
                 $(
-                    let $name = *lib
-                        .get::<unsafe extern "C" fn($($arg),*) -> $ret>(concat!(stringify!($name), "\0").as_bytes())
+                    // SAFETY: the caller guarantees each symbol has the declared signature.
+                    let $name = *unsafe { lib.get::<unsafe extern "C" fn($($arg),*) -> $ret>(concat!(stringify!($name), "\0").as_bytes()) }
                         .map_err(|e| format!("{}: {}", stringify!($name), e))?;
                 )*
                 Ok(Self { $($name,)* })
@@ -385,13 +385,13 @@ impl<T: DeviceCopy> DeviceBuffer<T> {
 
 impl<T: DeviceCopy> Drop for DeviceBuffer<T> {
     fn drop(&mut self) {
-        if self.ptr != 0 {
-            if let Ok(d) = sys::driver() {
-                let _ = self.ctx.bind();
-                // SAFETY: `ptr` came from cuMemAlloc and is freed exactly once.
-                unsafe {
-                    (d.fns.cuMemFree_v2)(self.ptr);
-                }
+        if self.ptr != 0
+            && let Ok(d) = sys::driver()
+        {
+            let _ = self.ctx.bind();
+            // SAFETY: `ptr` came from cuMemAlloc and is freed exactly once.
+            unsafe {
+                (d.fns.cuMemFree_v2)(self.ptr);
             }
         }
     }
@@ -717,12 +717,13 @@ impl Function {
                 attrs: &mut attr,
                 num_attrs: 1,
             };
-            return check("cuLaunchKernelEx", (d.fns.cuLaunchKernelEx)(&lc, self.raw, params.as_mut_ptr(), std::ptr::null_mut()));
+            // SAFETY: the caller guarantees `params` matches the kernel signature (see above).
+            return check("cuLaunchKernelEx", unsafe { (d.fns.cuLaunchKernelEx)(&lc, self.raw, params.as_mut_ptr(), std::ptr::null_mut()) });
         }
-        check(
-            "cuLaunchKernel",
-            (d.fns.cuLaunchKernel)(self.raw, cfg.grid.0, cfg.grid.1, cfg.grid.2, cfg.block.0, cfg.block.1, cfg.block.2, cfg.shared_mem_bytes, stream.raw, params.as_mut_ptr(), std::ptr::null_mut()),
-        )
+        // SAFETY: as above.
+        check("cuLaunchKernel", unsafe {
+            (d.fns.cuLaunchKernel)(self.raw, cfg.grid.0, cfg.grid.1, cfg.grid.2, cfg.block.0, cfg.block.1, cfg.block.2, cfg.shared_mem_bytes, stream.raw, params.as_mut_ptr(), std::ptr::null_mut())
+        })
     }
 }
 
