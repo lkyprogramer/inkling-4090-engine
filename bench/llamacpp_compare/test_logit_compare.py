@@ -88,6 +88,48 @@ class Judge(unittest.TestCase):
         self.assertFalse(lc.judge([], self.rows(), RULE)["complete"])
 
 
+RULE3 = {"policy": "num-3", "argmax_margin": 0.5, "record_only": ["max_near"],
+         "ratio_max": {"near_w": {"mean": 2.0, "p90": 2.0}, "kl": {"mean": 2.0, "p90": 2.0, "max": 2.0}}}
+
+
+class JudgePaired(unittest.TestCase):
+    exp = [("a", 4), ("b", 4)]
+    zr = np.array([2.0, 1.0, -3.0])
+
+    def rows(self, d):
+        zc = self.zr.copy()
+        zc[1] += d
+        return [row("a", 4, self.zr, zc), row("b", 4, self.zr, zc)]
+
+    def test_near_w_weights_by_probability(self):
+        # A large change on a token of negligible probability barely moves near_w.
+        m = lc.metrics(np.array([0.0, -14.0, -40.0]), np.array([0.0, -8.0, -40.0]))
+        self.assertGreater(m["max_near"], 5.0)
+        self.assertLess(m["near_w"], 0.01)
+
+    def test_pass_when_candidate_close_to_reference(self):
+        v = lc.judge_paired(self.exp, self.rows(0.1), self.rows(0.08), RULE3)
+        self.assertTrue(v["complete"] and v["passed"], v)
+
+    def test_fail_when_ratio_exceeded(self):
+        v = lc.judge_paired(self.exp, self.rows(0.5), self.rows(0.05), RULE3)
+        self.assertTrue(v["complete"])
+        self.assertFalse(v["passed"])
+
+    def test_zero_reference_needs_zero_candidate(self):
+        self.assertTrue(lc.judge_paired(self.exp, self.rows(0.0), self.rows(0.0), RULE3)["passed"])
+        self.assertFalse(lc.judge_paired(self.exp, self.rows(0.1), self.rows(0.0), RULE3)["passed"])
+
+    def test_incomplete_reference(self):
+        v = lc.judge_paired(self.exp, self.rows(0.1), self.rows(0.1)[:1], RULE3)
+        self.assertFalse(v["complete"])
+
+    def test_max_near_is_recorded_not_judged(self):
+        v = lc.judge_paired(self.exp, self.rows(0.1), self.rows(0.08), RULE3)
+        self.assertNotIn("max_near.max", v["checks"])
+        self.assertIn("max_near", v["recorded"])
+
+
 class EndToEnd(unittest.TestCase):
     def test_compare_calibrate_judge_exit_codes(self):
         with tempfile.TemporaryDirectory() as d:

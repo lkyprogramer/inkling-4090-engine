@@ -16,7 +16,7 @@ Reference used for the published results: llama.cpp `532d67426bb874f06a8acc6959a
 | [`chat_prompt_ids.py`](chat_prompt_ids.py) | Chat-template token ids for the prompt sets, from Astral's `/tokenize` |
 | [`greedy_reference.py`](greedy_reference.py) | Greedy continuations, raw top-1 and top-2 margins from `llama-server` |
 | [`teacher_forced_verdicts.py`](teacher_forced_verdicts.py) | V5/V6/V7 verdicts from `astral score` and `astral cmp-prefill`; non-zero exit on failure or missing data |
-| [`logit_compare.py`](logit_compare.py) | One calculator (policy `num-2`) for raw-logit pairs: reference-side window, full-vocabulary KL, argmax gaps; `calibrate` a rule from a reference control, `judge` with completeness checks and exit codes |
+| [`logit_compare.py`](logit_compare.py) | One calculator for raw-logit pairs: reference-side window, probability-weighted and max log-prob differences, full-vocabulary KL, argmax gaps. `judge` (num-2) applies absolute limits from `calibrate`; `judge-paired` (num-3) compares a candidate with a reference control on the same positions; both check completeness and set exit codes |
 | [`final_logits.cpp`](final_logits.cpp) | llama.cpp side of `astral dump-final-logits`: raw logits after chosen prefix lengths, one token per decode (`single`) or one batch (`batch`) |
 | [`stream_bench.py`](stream_bench.py) | Streaming `/v1/completions` benchmark: TTFT, inter-chunk latency, decode tok/s |
 | [`stream_report.py`](stream_report.py) | Per-configuration summary and paired CSVs |
@@ -69,6 +69,8 @@ python3 logit_compare.py compare manifest.tsv ll:single ll:batch ref_shape.jsonl
 python3 logit_compare.py calibrate ref_shape.jsonl rule.json --factor 2 --margin 0.5
 python3 logit_compare.py compare manifest.tsv as:step as:prefill astral_shape.jsonl
 python3 logit_compare.py judge manifest.tsv astral_shape.jsonl rule.json    # exit 0 / 1 / 2
+# num-3: ratios against the reference control on the same positions
+python3 logit_compare.py judge-paired manifest.tsv astral_shape.jsonl ref_shape.jsonl rule_num3.json
 python3 -m unittest test_logit_compare                                      # offline tests
 ```
 

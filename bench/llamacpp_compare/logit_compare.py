@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 inkling-4090-engine contributors
-"""One calculator for comparing two sets of raw logits (policy "num-2").
+"""One calculator for comparing two sets of raw logits (policies "num-2" and "num-3").
 
 Both sides are raw f32 logit files for the same token prefixes, as written by
 `astral dump-final-logits` (kinds step / prefill) and `final_logits.cpp` (single / batch):
@@ -10,6 +10,7 @@ Both sides are raw f32 logit files for the same token prefixes, as written by
   lp = log_softmax(z_ref), lq = log_softmax(z_cand)
   S  = {i : lp_i >= max(lp) - 16}             (window chosen on the reference side only)
   max_near = max_{i in S} |lp_i - lq_i|
+  near_w   = sum_{i in S} p_i |lp_i - lq_i|      (probability-weighted, num-3)
   kl       = sum_i p_i (lp_i - lq_i)            (whole vocabulary)
   mass_out = probability mass of the reference outside S
   argmax, top-2 margins on both sides, gap_ref = z_ref[a_ref] - z_ref[a_cand],
@@ -18,7 +19,13 @@ Both sides are raw f32 logit files for the same token prefixes, as written by
 Subcommands:
   compare   <manifest> <ref dir>:<kind> <cand dir>:<kind> <positions.jsonl>
   calibrate <positions.jsonl> <rule.json> [--factor 2] [--margin 0.5]
-  judge     <manifest> <positions.jsonl> <rule.json>
+  judge     <manifest> <positions.jsonl> <rule.json>                     (num-2: absolute limits)
+  judge-paired <manifest> <cand.jsonl> <ref.jsonl> <rule.json>         (num-3: same positions)
+
+num-3 compares a candidate with a reference control measured on the same positions: for each
+statistic in the rule, candidate / reference must not exceed the given ratio; argmax flips are
+allowed only where the reference-side top-2 margin is below argmax_margin; max_near is recorded,
+not judged.
 
 compare exits 2 when an expected file is missing or has the wrong size. judge checks that
 every manifest position is present exactly once and finite, then applies the rule; it prints
@@ -83,6 +90,7 @@ def metrics(zr, zc):
     return {
         "nonfinite": 0,
         "max_near": float(np.max(np.abs(lp[s] - lq[s]))),
+        "near_w": float(np.sum(p[s] * np.abs(lp[s] - lq[s]))),
         "kl": float(np.sum(p * (lp - lq))),
         "mass_out": float(np.sum(p[~s])),
         "window": int(np.count_nonzero(s)),
@@ -143,7 +151,7 @@ def summarize(rows):
     ok = [r for r in rows if r.get("nonfinite") == 0]
     if not ok:
         return {}
-    out = {m: {s: stat([r[m] for r in ok], s) for s in STATS} for m in ("max_near", "kl", "mass_out")}
+    out = {m: {s: stat([r[m] for r in ok], s) for s in STATS} for m in ("max_near", "near_w", "kl", "mass_out") if all(m in r for r in ok)}
     out["argmax_mismatch"] = sum(r["argmax_ref"] != r["argmax_cand"] for r in ok)
     return out
 
@@ -176,8 +184,7 @@ def cmd_calibrate(a):
     return 0
 
 
-def judge(expected, rows, rule):
-    """Verdict dict for rows against rule; complete=False when the input is not usable."""
+def completeness(expected, rows):
     problems = []
     seen = {}
     for r in rows:
@@ -198,6 +205,42 @@ def judge(expected, rows, rule):
         problems.append("unexpected %d positions" % len(extra))
     if nonfinite:
         problems.append("%d positions with non-finite logits" % nonfinite)
+    return problems
+
+
+def judge_paired(expected, cand, ref, rule):
+    """num-3 verdict: candidate vs a reference control on the same positions."""
+    problems = ["candidate: " + p for p in completeness(expected, cand)] + ["reference: " + p for p in completeness(expected, ref)]
+    out = {"policy": rule.get("policy"), "positions": len(cand), "expected": len(expected), "problems": problems}
+    if problems:
+        out.update(complete=False, passed=False)
+        return out
+    checks = {}
+    flips = [r for r in cand if r["argmax_ref"] != r["argmax_cand"]]
+    hard = [(r["name"], r["len"], r["margin_ref"]) for r in flips if r["margin_ref"] >= rule["argmax_margin"]]
+    checks["argmax"] = {"flips": len(flips), "flips_at_margin_ge_limit": hard, "ok": not hard}
+    sc, sr = summarize(cand), summarize(ref)
+    for m, lim in rule["ratio_max"].items():
+        for k, v in lim.items():
+            c, f = sc[m][k], sr[m][k]
+            ratio = c / f if f > 0 else (0.0 if c == 0 else math.inf)
+            checks["%s.%s" % (m, k)] = {"cand": c, "ref": f, "ratio": ratio, "limit": v, "ok": ratio <= v}
+    out.update(complete=True, checks=checks, recorded={m: {"cand": sc[m], "ref": sr[m]} for m in rule.get("record_only", [])},
+               passed=all(c["ok"] for c in checks.values()))
+    return out
+
+
+def cmd_judge_paired(a):
+    with open(a.rule) as f:
+        rule = json.load(f)
+    v = judge_paired(expected_positions(a.manifest), read_rows(a.cand), read_rows(a.ref), rule)
+    print(json.dumps(v, indent=1))
+    return 2 if not v["complete"] else (0 if v["passed"] else 1)
+
+
+def judge(expected, rows, rule):
+    """num-2 verdict dict for rows against rule; complete=False when the input is not usable."""
+    problems = completeness(expected, rows)
     out = {"policy": rule.get("policy"), "positions": len(rows), "expected": len(expected), "problems": problems}
     if problems:
         out.update(complete=False, passed=False)
@@ -246,6 +289,12 @@ def main(argv=None):
     j.add_argument("positions")
     j.add_argument("rule")
     j.set_defaults(fn=cmd_judge)
+    jp = sub.add_parser("judge-paired")
+    jp.add_argument("manifest")
+    jp.add_argument("cand")
+    jp.add_argument("ref")
+    jp.add_argument("rule")
+    jp.set_defaults(fn=cmd_judge_paired)
     a = p.parse_args(argv)
     return a.fn(a)
 
