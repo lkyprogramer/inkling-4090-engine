@@ -15,6 +15,10 @@ Changes in this fork on top of upstream `49a0a2b`.
 - Docs: [RTX 4090](docs/hardware/rtx4090.md) and [Inkling 2 Mini on RTX 4090](docs/benchmarks/inkling2_mini_rtx4090.md).
 - GitHub issue and pull request templates; host-only CI (format, tests, script syntax).
 
+### Added
+
+- Coverage diagnostics: `astral dump-verify-logits` (DSpark verify-pass rows, teacher-forced), a `decode` kind in `dump-final-logits` (prefill, then decode steps) and `ASTRAL_DUMP_PREFILL=1` for `dump-logits` (the serving path in llama.cpp's KL-divergence format).
+
 ### Fixed
 
 - Prefill is bit-reproducible run to run. The split-K GEMMs of the prefill path (the grouped tensor-core GEMM and the loop controller's down projection) added their K slices with float `atomicAdd`, so the rounding depended on block timing (two identical runs differed by up to 0.0024 nats KL at single positions). Each split now stores its partial sums in a workspace (16 MiB, reserved per session) and a second kernel adds them in split order. Cost on an RTX 4090: +1.5 ms (2.5%) for a 16-token prefill, none measurable at 128 and 512 tokens. `astral selftest` gains split-K repeatability cases.

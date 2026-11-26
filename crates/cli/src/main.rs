@@ -20,7 +20,7 @@
 use astral_core::Result;
 use std::process::ExitCode;
 
-const USAGE: &str = "usage: astral <hw [--bench | --bench-fresh] | selftest | gguf-info <model> [--tensors] | verify-embd <file> <log> | verify-model <file> <log> | generate <model> <n> <ids...> | dump-logits <model> <llama kld base> <out> | dump-final-logits <model> <manifest> <out dir> | spec-generate <model> <checkpoint dir> <k> <n> <ids...|@file> | serve <model> [--checkpoint <dir>] [--no-draft] [--k 6] [--host 0.0.0.0] [--port 8000] [--ctx 8192] [--name inkling-2-mini] | version>";
+const USAGE: &str = "usage: astral <hw [--bench | --bench-fresh] | selftest | gguf-info <model> [--tensors] | verify-embd <file> <log> | verify-model <file> <log> | generate <model> <n> <ids...> | dump-logits <model> <llama kld base> <out> | dump-final-logits <model> <manifest> <out dir> | dump-verify-logits <model> <checkpoint dir> <k> <manifest> <out dir> | spec-generate <model> <checkpoint dir> <k> <n> <ids...|@file> | serve <model> [--checkpoint <dir>] [--no-draft] [--k 6] [--host 0.0.0.0] [--port 8000] [--ctx 8192] [--name inkling-2-mini] | version>";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -42,6 +42,7 @@ fn main() -> ExitCode {
         Some("generate") if args.len() >= 4 => cmd_generate(&args[1], &args[2], &args[3..]),
         Some("serve") if args.len() >= 2 => cmd_serve(&args[1..]),
         Some("dump-final-logits") if args.len() >= 4 => cmd_dump_final_logits(&args[1], &args[2], &args[3]),
+        Some("dump-verify-logits") if args.len() >= 6 => cmd_dump_verify_logits(&args[1], &args[2], &args[3], &args[4], &args[5]),
         Some("cmp-prefill") if args.len() >= 3 => cmd_cmp_prefill(&args[1], &args[2..]),
         Some("spec-generate") if args.len() >= 6 => cmd_spec_generate(&args[1], &args[2], &args[3], &args[4], &args[5..]),
         Some("kbench") if args.len() >= 5 && args[1] == "mxfp4-gemv" => cmd_kbench_mxfp4(&args[2..], false),
@@ -276,7 +277,8 @@ fn cmd_score(path: &str, ids: &[String]) -> Result<bool> {
 /// Mirrors b12751 `tools/perplexity/perplexity.cpp`: header `_logits_`, n_ctx, n_vocab,
 /// n_chunk, tokens; then per chunk the second half (positions n_ctx/2 .. n_ctx-2), each
 /// as [scale f32, min_log_prob f32, n_vocab x u16] padded to an even count. No BOS is added
-/// (Inkling's GGUF has add_bos false).
+/// (Inkling's GGUF has add_bos false). With ASTRAL_DUMP_PREFILL=1 each chunk's first half is
+/// prefilled in one batch and only the scored positions are decode steps.
 fn cmd_dump_logits(path: &str, base: &str, out: &str) -> Result<bool> {
     use std::io::{Read, Write};
     let bad = |m: String| astral_core::AstralError::Invalid(m);
@@ -304,10 +306,16 @@ fn cmd_dump_logits(path: &str, base: &str, out: &str) -> Result<bool> {
     w.write_all(&magic).and_then(|_| w.write_all(&i32s)).and_then(|_| w.write_all(&tb)).map_err(io)?;
     let mut rec = vec![0u16; nv];
     let t0 = std::time::Instant::now();
+    // ASTRAL_DUMP_PREFILL=1: the serving path, a batched prefill up to the first scored position,
+    // then decode steps.
+    let prefill = std::env::var_os("ASTRAL_DUMP_PREFILL").is_some();
     for c in 0..n_chunk {
         s.reset()?;
         let toks = &tokens[c * n_ctx..(c + 1) * n_ctx];
-        for (j, &t) in toks[..n_ctx - 1].iter().enumerate() {
+        if prefill {
+            s.prefill(&toks[..first])?;
+        }
+        for (j, &t) in toks[..n_ctx - 1].iter().enumerate().skip(if prefill { first } else { 0 }) {
             s.step(t)?;
             if j < first {
                 continue;
@@ -438,16 +446,14 @@ fn cmd_generate(path: &str, n: &str, ids: &[String]) -> Result<bool> {
     Ok(true)
 }
 
-/// `dump-final-logits <model> <manifest> <out dir>`: raw logits after the first L tokens of a
-/// sequence, once from token-by-token steps (`<name>_<L>.step.f32`) and once from a batched
-/// prefill of the same L tokens (`<name>_<L>.prefill.f32`), as little-endian f32 over the model
-/// vocabulary. Each manifest line is `name<TAB>L1,L2,...<TAB>ids...`. Pairs with
-/// `bench/llamacpp_compare/final_logits.cpp` (the same files from llama.cpp) and
-/// `logit_compare.py`.
-fn cmd_dump_final_logits(path: &str, manifest: &str, out: &str) -> Result<bool> {
+/// One manifest line: name, sorted unique lengths, token ids.
+type ManifestJob = (String, Vec<usize>, Vec<u32>);
+
+/// Reads a `name<TAB>L1,L2,..<TAB>ids` manifest; returns the jobs and the largest length.
+fn read_manifest(manifest: &str) -> Result<(Vec<ManifestJob>, usize)> {
     let bad = |m: String| astral_core::AstralError::Invalid(m);
     let text = std::fs::read_to_string(manifest)?;
-    let mut jobs: Vec<(String, Vec<usize>, Vec<u32>)> = Vec::new();
+    let mut jobs: Vec<ManifestJob> = Vec::new();
     let mut cap = 0;
     for line in text.lines().filter(|l| !l.trim().is_empty()) {
         let mut f = line.splitn(3, '\t');
@@ -467,6 +473,18 @@ fn cmd_dump_final_logits(path: &str, manifest: &str, out: &str) -> Result<bool> 
     if jobs.is_empty() {
         return Err(bad(format!("{manifest}: no sequences")));
     }
+    Ok((jobs, cap))
+}
+
+/// `dump-final-logits <model> <manifest> <out dir>`: raw logits after the first L tokens of a
+/// sequence, once from token-by-token steps (`<name>_<L>.step.f32`) and once from a batched
+/// prefill of the same L tokens (`<name>_<L>.prefill.f32`), and for every length after the first
+/// along the serving path: prefill the first length, then decode steps (`<name>_<L>.decode.f32`);
+/// little-endian f32 over the model vocabulary. Each manifest line is `name<TAB>L1,L2,...<TAB>ids...`. Pairs with
+/// `bench/llamacpp_compare/final_logits.cpp` (the same files from llama.cpp) and
+/// `logit_compare.py`.
+fn cmd_dump_final_logits(path: &str, manifest: &str, out: &str) -> Result<bool> {
+    let (jobs, cap) = read_manifest(manifest)?;
     std::fs::create_dir_all(out)?;
     let save = |name: &str, len: usize, kind: &str, v: &[f32]| -> Result<()> {
         let bytes: Vec<u8> = v.iter().flat_map(|x| x.to_le_bytes()).collect();
@@ -488,6 +506,17 @@ fn cmd_dump_final_logits(path: &str, manifest: &str, out: &str) -> Result<bool> 
             s.reset()?;
             s.prefill(&ids[..len])?;
             save(name, len, "prefill", &s.logits()?)?;
+        }
+        // The serving path: prefill the first length (the prompt), then one decode step per token.
+        s.reset()?;
+        s.prefill(&ids[..lens[0]])?;
+        let mut next = 1;
+        for (i, &t) in ids.iter().enumerate().take(lens[lens.len() - 1]).skip(lens[0]) {
+            s.step(t)?;
+            if lens.get(next) == Some(&(i + 1)) {
+                save(name, i + 1, "decode", &s.logits()?)?;
+                next += 1;
+            }
         }
         println!("{name}: {} lengths up to {}", lens.len(), lens[lens.len() - 1]);
     }
@@ -606,6 +635,54 @@ fn read_ids(ids: &[String]) -> Result<Vec<u32>> {
         return Err(astral_core::AstralError::Invalid("no token ids".into()));
     }
     Ok(v)
+}
+
+/// `dump-verify-logits <model> <checkpoint dir> <k> <manifest> <out dir>`: logits of DSpark verify
+/// passes. Each sequence is prefilled up to its first length (the prompt), then speculative
+/// rounds of k drafts (k + 1 rows per verify pass; needs ASTRAL_SPEC_FIXED=1) accept along the
+/// manifest sequence. Every later length is the output of exactly one verify row whose inputs
+/// were all accepted tokens; that row's logits go to `<name>_<L>.verify<k>.f32` and a line
+/// `name, length, row, rows` to `<out dir>/verify<k>.tsv`.
+fn cmd_dump_verify_logits(path: &str, dir: &str, k: &str, manifest: &str, out: &str) -> Result<bool> {
+    let bad = |m: String| astral_core::AstralError::Invalid(m);
+    let k: usize = k.parse().map_err(|_| bad("k must be a number".into()))?;
+    if std::env::var_os("ASTRAL_SPEC_FIXED").is_none() {
+        return Err(bad("dump-verify-logits: set ASTRAL_SPEC_FIXED=1 so every round verifies k drafts".into()));
+    }
+    let (jobs, cap) = read_manifest(manifest)?;
+    std::fs::create_dir_all(out)?;
+    let mut s = load_session(path, (cap + k + 16) as u32)?;
+    s.enable_spec(std::path::Path::new(dir), k)?;
+    let mut index = String::new();
+    for (name, lens, ids) in &jobs {
+        s.reset()?;
+        s.spec_force(ids)?;
+        s.spec_begin(&ids[..lens[0]])?;
+        let mut p = lens[0];
+        let mut want = lens[1..].iter().copied().peekable();
+        while want.peek().is_some() {
+            let got = s.spec_next()?;
+            let c = got.len();
+            if c == 0 {
+                return Err(bad(format!("{name}: context full at position {p}")));
+            }
+            let end = ids.len().min(p + 1 + c);
+            if p + 1 < end && got[..end - p - 1] != ids[p + 1..end] {
+                return Err(bad(format!("{name}: round at {p} did not follow the forced sequence")));
+            }
+            let rows = s.spec_round_logits()?;
+            while let Some(l) = want.next_if(|&l| l <= p + c) {
+                let row = l - p - 1;
+                let bytes: Vec<u8> = rows[row].iter().flat_map(|x| x.to_le_bytes()).collect();
+                std::fs::write(format!("{out}/{name}_{l}.verify{k}.f32"), bytes)?;
+                index.push_str(&format!("{name}\t{l}\t{row}\t{}\n", k + 1));
+            }
+            p += c;
+        }
+        println!("{name}: {} lengths up to {}", lens.len() - 1, lens[lens.len() - 1]);
+    }
+    std::fs::write(format!("{out}/verify{k}.tsv"), index)?;
+    Ok(true)
 }
 
 /// `spec-generate <gguf> <native checkpoint dir> <k> <n> <ids... | @file>`: greedy generation

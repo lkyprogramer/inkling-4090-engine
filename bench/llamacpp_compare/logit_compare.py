@@ -4,7 +4,8 @@
 """One calculator for comparing two sets of raw logits (policies "num-2" and "num-3").
 
 Both sides are raw f32 logit files for the same token prefixes, as written by
-`astral dump-final-logits` (kinds step / prefill) and `final_logits.cpp` (single / batch):
+`astral dump-final-logits` (kinds step / prefill / decode), `astral dump-verify-logits` (verify<k>)
+and `final_logits.cpp` (single / batch):
 `<dir>/<name>_<L>.<kind>.f32`. Everything is computed in float64 the same way for every pair:
 
   lp = log_softmax(z_ref), lq = log_softmax(z_cand)

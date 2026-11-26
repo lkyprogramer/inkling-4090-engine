@@ -38,6 +38,8 @@ python3 kld_compare.py $G/kld_base_c512x8.bin ub1.bin > n0.json
 
 # 3. Astral's decode path on the same chunks
 astral dump-logits $M $G/kld_base_c512x8.bin astral.bin
+# serving path instead: prefill each chunk's first half, decode the scored positions
+ASTRAL_DUMP_PREFILL=1 astral dump-logits $M $G/kld_base_c512x8.bin astral_serve.bin
 python3 kld_compare.py $G/kld_base_c512x8.bin astral.bin > astral.json
 
 # 4. Greedy / teacher-forced checks on chat prompts (Astral server running for /tokenize)
@@ -63,7 +65,9 @@ both engines go through one calculator. A manifest line is `name<TAB>L1,L2,...<T
 ```bash
 g++ -O2 -std=c++17 -I$LL/include -I$LL/ggml/include final_logits.cpp -L$B -lllama -Wl,-rpath,$B -o final_logits
 ./final_logits $M manifest.tsv ll single; ./final_logits $M manifest.tsv ll batch
-astral dump-final-logits $M manifest.tsv as
+astral dump-final-logits $M manifest.tsv as      # kinds step, prefill, decode (prefill of the first length, then steps)
+# DSpark verify rows (k drafts, k + 1 rows per pass), teacher-forced along each sequence
+ASTRAL_SPEC_FIXED=1 astral dump-verify-logits $M <native checkpoint> 3 manifest.tsv as   # kind verify3
 # Reference shape control first; freeze the rule before looking at the candidate.
 python3 logit_compare.py compare manifest.tsv ll:single ll:batch ref_shape.jsonl
 python3 logit_compare.py calibrate ref_shape.jsonl rule.json --factor 2 --margin 0.5

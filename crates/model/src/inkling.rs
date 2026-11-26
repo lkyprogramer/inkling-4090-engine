@@ -936,6 +936,15 @@ impl Session {
         Ok(o[1..=c].iter().map(|&t| t as u32).collect())
     }
 
+    /// Diagnostics: the logits of every row of the last speculative verify pass (rows `0..=k`,
+    /// unpadded vocabulary). Rows past the accepted prefix saw rejected drafts.
+    pub fn spec_round_logits(&self) -> Result<Vec<Vec<f32>>> {
+        let sp = self.spec.as_deref().ok_or_else(|| bad("spec_round_logits: speculative decoding is not enabled".into()))?;
+        let vp = self.w.output.n as usize;
+        let all = sp.logits_all.to_vec()?;
+        Ok((0..=sp.k).map(|r| all[r * vp..r * vp + self.w.cfg.vocab].to_vec()).collect())
+    }
+
     /// Whether [`Session::enable_spec`] was called.
     pub fn spec_enabled(&self) -> bool {
         self.spec.is_some()
