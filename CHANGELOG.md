@@ -8,6 +8,7 @@ Changes in this fork on top of upstream `49a0a2b`.
 
 ### Added
 
+- `astral trace`: read-only probes of the looped forward pass at chosen decode positions (block mixes, cross-pass messages, loop controllers, routing, attention mass, the stream and a raw lens), recomputed on the host and checked against the device output; see [docs/trace.md](docs/trace.md). Probes off, on and eager give bit-identical logits.
 - `ArchProfile::Sm89` for the RTX 4090 (F80 kernel family, FP8 tensor cores reported, no FP4 path); validation level Logic.
 - `astral dump-logits <model> <llama kld base> <out>`: token-by-token log-probs in llama.cpp's `--kl-divergence-base` format.
 - `astral cmp-prefill` also prints the near-top max difference, where the overall largest difference sits, and KL(step ‖ prefill).

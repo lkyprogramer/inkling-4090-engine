@@ -20,7 +20,7 @@
 use astral_core::Result;
 use std::process::ExitCode;
 
-const USAGE: &str = "usage: astral <hw [--bench | --bench-fresh] | selftest | gguf-info <model> [--tensors] | verify-embd <file> <log> | verify-model <file> <log> | generate <model> <n> <ids...> | dump-logits <model> <llama kld base> <out> | dump-final-logits <model> <manifest> <out dir> | dump-verify-logits <model> <checkpoint dir> <k> <manifest> <out dir> | spec-generate <model> <checkpoint dir> <k> <n> <ids...|@file> | serve <model> [--checkpoint <dir>] [--no-draft] [--k 6] [--host 0.0.0.0] [--port 8000] [--ctx 8192] [--name inkling-2-mini] | version>";
+const USAGE: &str = "usage: astral <hw [--bench | --bench-fresh] | selftest | gguf-info <model> [--tensors] | verify-embd <file> <log> | verify-model <file> <log> | generate <model> <n> <ids...> | dump-logits <model> <llama kld base> <out> | dump-final-logits <model> <manifest> <out dir> | dump-verify-logits <model> <checkpoint dir> <k> <manifest> <out dir> | trace <model> <manifest> <out dir> | spec-generate <model> <checkpoint dir> <k> <n> <ids...|@file> | serve <model> [--checkpoint <dir>] [--no-draft] [--k 6] [--host 0.0.0.0] [--port 8000] [--ctx 8192] [--name inkling-2-mini] | version>";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -42,6 +42,7 @@ fn main() -> ExitCode {
         Some("generate") if args.len() >= 4 => cmd_generate(&args[1], &args[2], &args[3..]),
         Some("serve") if args.len() >= 2 => cmd_serve(&args[1..]),
         Some("dump-final-logits") if args.len() >= 4 => cmd_dump_final_logits(&args[1], &args[2], &args[3]),
+        Some("trace") if args.len() >= 4 => cmd_trace(&args[1], &args[2], &args[3]),
         Some("dump-verify-logits") if args.len() >= 6 => cmd_dump_verify_logits(&args[1], &args[2], &args[3], &args[4], &args[5]),
         Some("cmp-prefill") if args.len() >= 3 => cmd_cmp_prefill(&args[1], &args[2..]),
         Some("spec-generate") if args.len() >= 6 => cmd_spec_generate(&args[1], &args[2], &args[3], &args[4], &args[5..]),
@@ -635,6 +636,48 @@ fn read_ids(ids: &[String]) -> Result<Vec<u32>> {
         return Err(astral_core::AstralError::Invalid("no token ids".into()));
     }
     Ok(v)
+}
+
+/// `trace <model> <manifest> <out dir>`: read-only probes of the looped forward pass
+/// (docs/trace.md). Each manifest sequence is fed token by token; the step that consumes token
+/// L - 1 for each listed length L is probed. Writes `<out dir>/trace.jsonl` (one record per layer
+/// visit and one for the head, per probed position) and the probed step's final logits as
+/// `<out dir>/<name>_<L>.trace.f32` (same format as dump-final-logits). The attention output is
+/// recomputed from the V cache at the first probed position of each sequence, or at every
+/// one with ASTRAL_TRACE_VALIDATE=all.
+fn cmd_trace(path: &str, manifest: &str, out: &str) -> Result<bool> {
+    use std::io::Write;
+    let (jobs, cap) = read_manifest(manifest)?;
+    std::fs::create_dir_all(out)?;
+    let all = std::env::var("ASTRAL_TRACE_VALIDATE").is_ok_and(|v| v == "all");
+    let mut s = load_session(path, (cap + 8) as u32)?;
+    let mut f = std::io::BufWriter::new(std::fs::File::create(format!("{out}/trace.jsonl"))?);
+    let t0 = std::time::Instant::now();
+    for (name, lens, ids) in &jobs {
+        s.reset()?;
+        let mut next = 0;
+        for (i, &t) in ids[..lens[lens.len() - 1]].iter().enumerate() {
+            let probe = lens.get(next) == Some(&(i + 1));
+            if probe {
+                s.arm_probe()?;
+            }
+            s.step(t)?;
+            if probe {
+                let recs = s.probe_report(t, ids.get(i + 1).copied(), all || next == 0)?;
+                for mut r in recs {
+                    r["seq"] = serde_json::json!(name);
+                    r["len"] = serde_json::json!(i + 1);
+                    writeln!(f, "{r}")?;
+                }
+                let bytes: Vec<u8> = s.logits()?.iter().flat_map(|x| x.to_le_bytes()).collect();
+                std::fs::write(format!("{out}/{name}_{}.trace.f32", i + 1), bytes)?;
+                next += 1;
+            }
+        }
+        eprintln!("{name}: {} positions ({:.1} s)", lens.len(), t0.elapsed().as_secs_f64());
+    }
+    f.flush()?;
+    Ok(true)
 }
 
 /// `dump-verify-logits <model> <checkpoint dir> <k> <manifest> <out dir>`: logits of DSpark verify

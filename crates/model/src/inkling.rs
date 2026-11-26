@@ -17,6 +17,8 @@ use astral_loader::{Gguf, TensorInfo};
 use astral_quant::GgmlType;
 use std::sync::Arc;
 
+mod probe;
+
 fn bad(m: String) -> AstralError {
     AstralError::Invalid(format!("inkling: {m}"))
 }
@@ -392,6 +394,8 @@ struct Scratch {
     work: [DevWork; 3],
     /// Layer intermediates (name, values), collected on decode steps when set (verification).
     dbg: Option<Vec<(&'static str, Vec<f32>)>>,
+    /// Read-only probes of the next decode step ([`Session::arm_probe`]).
+    probe: Option<Box<probe::Probe>>,
 }
 
 /// A [`MmaWork`] on the device (fixed-size buffers, rewritten per use).
@@ -499,6 +503,8 @@ pub struct Session {
     reset_graph: Option<GraphExec>,
     /// DSpark speculative decoding, when enabled ([`Session::enable_spec`]).
     spec: Option<Box<Spec>>,
+    /// Host copies of small weights for [`Session::probe_report`], read on first use.
+    probe_w: Option<probe::HostW>,
 }
 
 /// Floats of attention workspace: decode at full capacity, or `tmax` tokens over 512 positions.
@@ -585,6 +591,7 @@ impl Session {
                 [DevWork::new(ctx, mi, mx)?, DevWork::new(ctx, mi, mx)?, DevWork::new(ctx, mi, mx)?]
             },
             dbg: None,
+            probe: None,
         };
         let mut me = Self {
             stream: Stream::new(ctx)?,
@@ -608,6 +615,7 @@ impl Session {
             graph: None,
             reset_graph: None,
             spec: None,
+            probe_w: None,
             w,
         };
         me.capture_graph()?;
@@ -652,7 +660,7 @@ impl Session {
         s.token.copy_from_slice(&tok)?;
         s.pos.copy_from_slice(&[*pos as i32])?;
         let t1 = std::time::Instant::now();
-        let eager = *capture || s.dbg.is_some() || std::env::var_os("ASTRAL_NO_GRAPH").is_some();
+        let eager = *capture || s.dbg.is_some() || s.probe.as_ref().is_some_and(|p| p.armed) || std::env::var_os("ASTRAL_NO_GRAPH").is_some();
         if eager {
             captured.clear();
             let ex = Exec { st: stream, gemv, ops, rms };
@@ -936,6 +944,44 @@ impl Session {
         Ok(o[1..=c].iter().map(|&t| t as u32).collect())
     }
 
+    /// Read-only probes (docs/trace.md): the next [`Session::step`] runs eagerly with the same
+    /// kernels as the graph replay and stages small intermediates; read them with
+    /// [`Session::probe_report`]. Staging size: `ASTRAL_TRACE_FLOATS` (default 24 Mi floats);
+    /// `ASTRAL_TRACE_LENS=0` skips the per-visit raw-lens head.
+    pub fn arm_probe(&mut self) -> Result<()> {
+        if self.s.probe.is_none() {
+            let floats = std::env::var("ASTRAL_TRACE_FLOATS").ok().and_then(|v| v.parse().ok()).unwrap_or(24usize << 20);
+            self.s.probe = Some(Box::new(probe::Probe::new(self.stream.context(), self.w.cfg.dim, self.w.cfg.vocab_padded, floats)?));
+        }
+        let p = self.s.probe.as_deref_mut().expect("allocated above");
+        p.lens = std::env::var("ASTRAL_TRACE_LENS").map_or(true, |v| v != "0");
+        p.arm();
+        Ok(())
+    }
+
+    /// JSON records of the probed step (one per layer visit, then the head), for `token` at
+    /// position `pos - 1`; `target` adds its log-prob to the readouts; `validate` also
+    /// recomputes the attention output (reads the V cache).
+    pub fn probe_report(&mut self, token: u32, target: Option<u32>, validate: bool) -> Result<Vec<serde_json::Value>> {
+        if !self.s.probe.as_ref().is_some_and(|p| p.armed) {
+            return Err(bad("probe_report: no armed probe (call arm_probe, then step)".into()));
+        }
+        if self.pos == 0 {
+            return Err(bad("probe_report: no step was run".into()));
+        }
+        self.stream.synchronize()?;
+        let staged = self.s.probe.as_deref_mut().expect("checked above").take()?;
+        if self.probe_w.is_none() {
+            self.probe_w = Some(probe::HostW::load(&self.w)?);
+        }
+        let native = self.logits()?;
+        let kvw = self.w.cfg.kv_width();
+        let (kc, vc) = (&self.kc, &self.vc);
+        let kv = |slot: usize, lo: usize, n: usize, is_v: bool| -> Result<Vec<u16>> { if is_v { &vc[slot] } else { &kc[slot] }.to_vec_range(lo * kvw, n * kvw) };
+        let a = probe::ReportIn { w: &self.w, hw: self.probe_w.as_ref().expect("loaded above"), pos: self.pos - 1, token, target, kv: &kv, validate, native: &native };
+        probe::report(&staged, &a)
+    }
+
     /// Diagnostics: the logits of every row of the last speculative verify pass (rows `0..=k`,
     /// unpadded vocabulary). Rows past the accepted prefix saw rejected drafts.
     pub fn spec_round_logits(&self) -> Result<Vec<Vec<f32>>> {
@@ -1093,6 +1139,9 @@ fn forward(
     let mut blocks: Vec<u32> = Vec::new();
     let mut next_row = 0usize;
     let mut visit = 0usize;
+    // Probes (decode steps only; see docs/trace.md).
+    let armed = ntok == 1 && s.probe.as_ref().is_some_and(|p| p.armed);
+    let (core_n, n_layer, core0, core1) = (cfg.core_end - cfg.core_start, cfg.n_layer, cfg.core_start, cfg.core_end);
     let taps = io.taps;
     let hist_rows = io.hist_rows;
     let mut run = |slot: usize, ip: usize, loop_i: Option<usize>, blocks: &mut Vec<u32>, next_row: &mut usize, s: &mut Scratch| -> Result<()> {
@@ -1105,9 +1154,17 @@ fn forward(
         {
             f.copy_range_from_async(t * s.tmax * d, &s.cur, 0, td, ex.st)?;
         }
+        if armed && let Some(p) = s.probe.as_deref_mut() {
+            let pass = if loop_i.is_some() { Some((slot - n_layer) / core_n + 1) } else if (core0..core1).contains(&ip) { Some(0) } else { None };
+            p.ctx = probe::Ctx { visit, slot, ip, pass };
+        }
         visit += 1;
         let mut hist = io.hist.as_deref_mut().map(|h| Hist { buf: &mut h[slot], rows: hist_rows });
         layer(ex, w, s, &mut kc[slot], &mut vc[slot], &mut conv[slot], ip, loop_i, blocks, next_row, capacity, pos0, ntok, hist.as_mut())?;
+        if armed && let Some(p) = s.probe.as_deref_mut() {
+            p.f(ex.st, "out", &s.cur, 0, d, Vec::new())?;
+            p.lens(ex, w, &s.cur)?;
+        }
         if let Some(c) = captured.as_deref_mut() {
             ex.st.synchronize()?;
             let mut v = s.cur.to_vec()?;
@@ -1142,6 +1199,11 @@ fn forward(
             let li = ip - start;
             let mq = &w.loops[li].msg_query;
             ex.ops.mix(ex.st, &s.bank, &bank, rs, &s.bank_out, mq, (mq.len() / d) as u32, &mut s.msgs, d as u32, ntok as u32)?;
+            if armed && let Some(p) = s.probe.as_deref_mut() {
+                p.ctx = probe::Ctx { visit: start + pass * core + li, slot: cfg.n_layer + (pass - 1) * core + li, ip, pass: Some(pass) };
+                p.states(ex.st, "msg_mix.states", &s.bank, &bank, rs, &s.bank_out, d)?;
+                p.f(ex.st, "msg_mix.out", &s.msgs, 0, mq.len(), Vec::new())?;
+            }
             run(cfg.n_layer + (pass - 1) * core + li, ip, Some(li), &mut blocks, &mut next_row, s)?;
         }
     }
@@ -1181,6 +1243,11 @@ fn forward(
         let bank = s.bank.view(last, s.bank.len() - last)?;
         let cur = s.cur.view(last, d)?;
         ex.ops.mix(ex.st, &bank, &blocks, rs, &cur, &w.output_res_query, 1, &mut s.m, d as u32, 1)?;
+    }
+    if armed && let Some(p) = s.probe.as_deref_mut() {
+        p.ctx = probe::Ctx { visit: usize::MAX, slot: usize::MAX, ip: cfg.n_layer, pass: None };
+        p.states(ex.st, "head_mix.states", &s.bank, &blocks, rs, &s.cur, d)?;
+        p.f(ex.st, "head_mix.out", &s.m, 0, d, Vec::new())?;
     }
     ex.ops.rms_q8(ex.st, &s.m, d, Some(&w.output_norm), Some(&mut s.mn), &mut s.qa_last, 1, cfg.rms_eps)?;
     match w.output.ty {
@@ -1342,6 +1409,11 @@ fn layer(
             ex.ops.mix(st, &s.bank, blocks, rs, &s.cur, qry, nq as u32, &mut s.mixed, du, nt)?;
         }
     }
+    let armed = ntok == 1 && s.probe.as_ref().is_some_and(|p| p.armed);
+    if armed && nq > 0 && let Some(p) = s.probe.as_deref_mut() {
+        p.states(st, "attn_mix.states", &s.bank, blocks, rs, &s.cur, d)?;
+        p.f(st, "attn_mix.out", &s.mixed, 0, nq * d, vec![nq as u32])?;
+    }
     let batched_ctrl = (ntok == 1 || small_batch(ntok)) && std::env::var_os("ASTRAL_NO_BATCH_CTRL").is_none();
     if let (Some(li), true) = (loop_i, batched_ctrl) {
         // Q, K and V controllers in two launches, then their three input norms in one.
@@ -1404,6 +1476,13 @@ fn layer(
             (s.cur.view(0, s.cur.len())?, d)
         };
         ex.ops.rms_q8(st, &x, xs, Some(nw), Some(&mut s.normed[j]), &mut s.qa[j], nt, cfg.rms_eps)?;
+    }
+    if armed && batched_ctrl && let (Some(li), Some(p)) = (loop_i, s.probe.as_deref_mut()) {
+        let rank = w.loops[li].down[0].n as usize;
+        p.f(st, "ctrl.cd", &s.cd, 0, 3 * rank, Vec::new())?;
+        for (j, x) in s.inputs.iter().enumerate() {
+            p.f(st, "ctrl.out", x, 0, d, vec![j as u32])?;
+        }
     }
     let (ik, iv) = if n_in == 3 { (1, 2) } else { (0, 0) };
     if tap {
@@ -1530,6 +1609,13 @@ fn layer(
     tap!("Vcur", v);
     tap!("Rcur", r);
     tap!("sinks", sinks);
+    if armed && let Some(p) = s.probe.as_deref_mut() {
+        let hh = cfg.heads * cfg.head_dim;
+        p.f(st, "attn.q", &s.q, 0, hh, Vec::new())?;
+        p.f(st, "attn.r", &s.r, 0, cfg.heads * n_rel as usize, Vec::new())?;
+        p.f(st, "attn.sinks", &s.sinks, 0, cfg.heads, Vec::new())?;
+        p.f(st, "attn.gate", &s.gate, 0, hh, Vec::new())?;
+    }
 
     // Attention, output gate, output projection, post conv into the residual stream. The
     // first layer of each block starts a new stream; the old one joins the blocks.
@@ -1567,6 +1653,9 @@ fn layer(
     if !gated {
         ex.ops.gate_q8(st, &mut s.attn, &s.gate, &mut s.qa_attn, nt)?;
     }
+    if armed && let Some(p) = s.probe.as_deref_mut() {
+        p.f(st, "attn.out", &s.attn, 0, cfg.heads * cfg.head_dim, Vec::new())?;
+    }
     ex.mm(&l.wo, &s.qa_attn, &mut s.o, ntok, &s.items_dense, &s.work[0])?;
     let starts_block = ip % cfg.attn_res_block == 0;
     if starts_block && *next_row >= BANK_ROWS {
@@ -1589,6 +1678,9 @@ fn layer(
         }
     }
     if starts_block {
+        if armed && let Some(p) = s.probe.as_deref_mut() {
+            p.row_visit[*next_row] = Some(p.ctx.visit);
+        }
         blocks.push(*next_row as u32);
         *next_row += 1;
     }
@@ -1603,6 +1695,10 @@ fn layer(
     } else {
         ex.ops.mix(st, &s.bank, blocks, rs, &s.cur, &l.ffn_res_query, 1, &mut s.m, du, nt)?;
     }
+    if armed && let Some(p) = s.probe.as_deref_mut() {
+        p.states(st, "ffn_mix.states", &s.bank, blocks, rs, &s.cur, d)?;
+        p.f(st, "ffn_mix.out", &s.m, 0, d, Vec::new())?;
+    }
     if let Some(li) = loop_i {
         let lp = &w.loops[li];
         let msg = s.msgs.view(3 * d, s.msgs.len() - 3 * d)?;
@@ -1611,6 +1707,10 @@ fn layer(
             ex.ops.ctrl_combine(st, &lp.gain_forget[3], &s.cd, &s.m, d, &msg, 4 * d, &mut s.ctmp, du, nt)?;
         } else {
             ex.ops.ctrl_t(st, &lp.down[3], &lp.gain_forget[3], &s.m, d, &msg, 4 * d, &mut s.crms, &mut s.cd, &mut s.gu, &mut s.ctmp, du, nt)?;
+        }
+        if armed && let Some(p) = s.probe.as_deref_mut() {
+            p.f(st, "ffn_ctrl.cd", &s.cd, 0, lp.down[3].n as usize, Vec::new())?;
+            p.f(st, "ffn_ctrl.out", &s.ctmp, 0, d, Vec::new())?;
         }
     }
     if !fuse_ffn {
@@ -1627,6 +1727,11 @@ fn layer(
         ex.mm_f32(&l.router, &s.mn, &mut s.rlogits, ntok, &s.zero_ids)?;
         tap!("ffn_moe_logits", rlogits);
         ex.ops.router_topk(st, &s.rlogits, l.probs_b.as_ref(), &mut s.ids, &mut s.w, ne, k, cfg.expert_scale, nt)?;
+    }
+    if armed && let Some(p) = s.probe.as_deref_mut() {
+        p.f(st, "router.logits", &s.rlogits, 0, ne as usize, Vec::new())?;
+        p.i(st, "router.ids", &s.ids, 0, k as usize)?;
+        p.f(st, "router.w", &s.w, 0, k as usize, Vec::new())?;
     }
     let pairs = ntok * k as usize;
     if ntok == 1 {

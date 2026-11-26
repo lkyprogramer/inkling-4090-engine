@@ -350,6 +350,24 @@ impl<T: DeviceCopy> DeviceBuffer<T> {
         Ok(v)
     }
 
+    /// Synchronous device-to-host copy of `len` elements starting at `offset`.
+    pub fn to_vec_range(&self, offset: usize, len: usize) -> Result<Vec<T>> {
+        let src = self.range(offset, len)?;
+        let mut v: Vec<T> = Vec::with_capacity(len);
+        let bytes = len * size_of::<T>();
+        if bytes > 0 {
+            self.ctx.bind()?;
+            let d = drv()?;
+            // SAFETY: the range was bounds-checked; `v` has capacity for `len` elements and its
+            // length is set only after the copy succeeded.
+            unsafe {
+                check("cuMemcpyDtoH_v2", (d.fns.cuMemcpyDtoH_v2)(v.as_mut_ptr() as *mut c_void, src, bytes))?;
+                v.set_len(len);
+            }
+        }
+        Ok(v)
+    }
+
     /// Asynchronous device-to-device copy on `stream`. Lengths must match.
     pub fn copy_from_device_async(&mut self, src: &DeviceBuffer<T>, stream: &Stream) -> Result<()> {
         if src.len != self.len {
