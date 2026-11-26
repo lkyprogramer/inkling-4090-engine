@@ -1155,7 +1155,13 @@ fn forward(
             f.copy_range_from_async(t * s.tmax * d, &s.cur, 0, td, ex.st)?;
         }
         if armed && let Some(p) = s.probe.as_deref_mut() {
-            let pass = if loop_i.is_some() { Some((slot - n_layer) / core_n + 1) } else if (core0..core1).contains(&ip) { Some(0) } else { None };
+            let pass = if loop_i.is_some() {
+                Some((slot - n_layer) / core_n + 1)
+            } else if (core0..core1).contains(&ip) {
+                Some(0)
+            } else {
+                None
+            };
             p.ctx = probe::Ctx { visit, slot, ip, pass };
         }
         visit += 1;
@@ -1410,7 +1416,10 @@ fn layer(
         }
     }
     let armed = ntok == 1 && s.probe.as_ref().is_some_and(|p| p.armed);
-    if armed && nq > 0 && let Some(p) = s.probe.as_deref_mut() {
+    if armed
+        && nq > 0
+        && let Some(p) = s.probe.as_deref_mut()
+    {
         p.states(st, "attn_mix.states", &s.bank, blocks, rs, &s.cur, d)?;
         p.f(st, "attn_mix.out", &s.mixed, 0, nq * d, vec![nq as u32])?;
     }
@@ -1477,7 +1486,10 @@ fn layer(
         };
         ex.ops.rms_q8(st, &x, xs, Some(nw), Some(&mut s.normed[j]), &mut s.qa[j], nt, cfg.rms_eps)?;
     }
-    if armed && batched_ctrl && let (Some(li), Some(p)) = (loop_i, s.probe.as_deref_mut()) {
+    if armed
+        && batched_ctrl
+        && let (Some(li), Some(p)) = (loop_i, s.probe.as_deref_mut())
+    {
         let rank = w.loops[li].down[0].n as usize;
         p.f(st, "ctrl.cd", &s.cd, 0, 3 * rank, Vec::new())?;
         for (j, x) in s.inputs.iter().enumerate() {
