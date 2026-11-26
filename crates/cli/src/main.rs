@@ -20,7 +20,7 @@
 use astral_core::Result;
 use std::process::ExitCode;
 
-const USAGE: &str = "usage: astral <hw [--bench | --bench-fresh] | selftest | gguf-info <model> [--tensors] | verify-embd <file> <log> | verify-model <file> <log> | generate <model> <n> <ids...> | dump-logits <model> <llama kld base> <out> | spec-generate <model> <checkpoint dir> <k> <n> <ids...|@file> | serve <model> [--checkpoint <dir>] [--no-draft] [--k 6] [--host 0.0.0.0] [--port 8000] [--ctx 8192] [--name inkling-2-mini] | version>";
+const USAGE: &str = "usage: astral <hw [--bench | --bench-fresh] | selftest | gguf-info <model> [--tensors] | verify-embd <file> <log> | verify-model <file> <log> | generate <model> <n> <ids...> | dump-logits <model> <llama kld base> <out> | dump-final-logits <model> <manifest> <out dir> | spec-generate <model> <checkpoint dir> <k> <n> <ids...|@file> | serve <model> [--checkpoint <dir>] [--no-draft] [--k 6] [--host 0.0.0.0] [--port 8000] [--ctx 8192] [--name inkling-2-mini] | version>";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -41,6 +41,7 @@ fn main() -> ExitCode {
         Some("qwen-generate") if args.len() >= 4 => cmd_qwen_generate(&args[1], &args[2], &args[3..]),
         Some("generate") if args.len() >= 4 => cmd_generate(&args[1], &args[2], &args[3..]),
         Some("serve") if args.len() >= 2 => cmd_serve(&args[1..]),
+        Some("dump-final-logits") if args.len() >= 4 => cmd_dump_final_logits(&args[1], &args[2], &args[3]),
         Some("cmp-prefill") if args.len() >= 3 => cmd_cmp_prefill(&args[1], &args[2..]),
         Some("spec-generate") if args.len() >= 6 => cmd_spec_generate(&args[1], &args[2], &args[3], &args[4], &args[5..]),
         Some("kbench") if args.len() >= 5 && args[1] == "mxfp4-gemv" => cmd_kbench_mxfp4(&args[2..], false),
@@ -434,6 +435,62 @@ fn cmd_generate(path: &str, n: &str, ids: &[String]) -> Result<bool> {
     let td = t1.elapsed().as_secs_f64();
     println!("tokens: {out:?}");
     println!("prompt {} tok in {:.3} s; decode {} tok at {:.1} tok/s", prompt.len(), tp, n - 1, (n - 1) as f64 / td.max(1e-9));
+    Ok(true)
+}
+
+/// `dump-final-logits <model> <manifest> <out dir>`: raw logits after the first L tokens of a
+/// sequence, once from token-by-token steps (`<name>_<L>.step.f32`) and once from a batched
+/// prefill of the same L tokens (`<name>_<L>.prefill.f32`), as little-endian f32 over the model
+/// vocabulary. Each manifest line is `name<TAB>L1,L2,...<TAB>ids...`. Pairs with
+/// `bench/llamacpp_compare/final_logits.cpp` (the same files from llama.cpp) and
+/// `logit_compare.py`.
+fn cmd_dump_final_logits(path: &str, manifest: &str, out: &str) -> Result<bool> {
+    let bad = |m: String| astral_core::AstralError::Invalid(m);
+    let text = std::fs::read_to_string(manifest)?;
+    let mut jobs: Vec<(String, Vec<usize>, Vec<u32>)> = Vec::new();
+    let mut cap = 0;
+    for line in text.lines().filter(|l| !l.trim().is_empty()) {
+        let mut f = line.splitn(3, '\t');
+        let (Some(name), Some(lens), Some(ids)) = (f.next(), f.next(), f.next()) else {
+            return Err(bad(format!("{manifest}: expected name<TAB>lengths<TAB>ids, got {line:?}")));
+        };
+        let ids = ids.split_whitespace().map(|t| t.parse::<u32>().map_err(|_| bad(format!("{name}: bad token id {t:?}")))).collect::<Result<Vec<_>>>()?;
+        let mut lens = lens.split(',').map(|t| t.trim().parse::<usize>().map_err(|_| bad(format!("{name}: bad length {t:?}")))).collect::<Result<Vec<_>>>()?;
+        lens.sort_unstable();
+        lens.dedup();
+        match (lens.first(), lens.last()) {
+            (Some(&lo), Some(&hi)) if lo > 0 && hi <= ids.len() => cap = cap.max(hi),
+            _ => return Err(bad(format!("{name}: lengths must be in 1..={}", ids.len()))),
+        }
+        jobs.push((name.to_string(), lens, ids));
+    }
+    if jobs.is_empty() {
+        return Err(bad(format!("{manifest}: no sequences")));
+    }
+    std::fs::create_dir_all(out)?;
+    let save = |name: &str, len: usize, kind: &str, v: &[f32]| -> Result<()> {
+        let bytes: Vec<u8> = v.iter().flat_map(|x| x.to_le_bytes()).collect();
+        std::fs::write(format!("{out}/{name}_{len}.{kind}.f32"), bytes)?;
+        Ok(())
+    };
+    let mut s = load_session(path, (cap + 8) as u32)?;
+    for (name, lens, ids) in &jobs {
+        s.reset()?;
+        let mut next = 0;
+        for (i, &t) in ids[..lens[lens.len() - 1]].iter().enumerate() {
+            s.step(t)?;
+            if lens.get(next) == Some(&(i + 1)) {
+                save(name, i + 1, "step", &s.logits()?)?;
+                next += 1;
+            }
+        }
+        for &len in lens {
+            s.reset()?;
+            s.prefill(&ids[..len])?;
+            save(name, len, "prefill", &s.logits()?)?;
+        }
+        println!("{name}: {} lengths up to {}", lens.len(), lens[lens.len() - 1]);
+    }
     Ok(true)
 }
 

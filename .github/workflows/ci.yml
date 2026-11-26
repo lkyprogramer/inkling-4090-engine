@@ -20,3 +20,7 @@ jobs:
         run: cargo test --workspace
       - name: Python scripts compile
         run: python3 -m py_compile bench/llamacpp_compare/*.py bench/serving/*.py
+      - name: Comparison calculator tests
+        run: |
+          python3 -m pip install --quiet numpy
+          cd bench/llamacpp_compare && python3 -m unittest -v test_logit_compare

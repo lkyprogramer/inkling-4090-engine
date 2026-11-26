@@ -16,6 +16,8 @@ Reference used for the published results: llama.cpp `532d67426bb874f06a8acc6959a
 | [`chat_prompt_ids.py`](chat_prompt_ids.py) | Chat-template token ids for the prompt sets, from Astral's `/tokenize` |
 | [`greedy_reference.py`](greedy_reference.py) | Greedy continuations, raw top-1 and top-2 margins from `llama-server` |
 | [`teacher_forced_verdicts.py`](teacher_forced_verdicts.py) | V5/V6/V7 verdicts from `astral score` and `astral cmp-prefill`; non-zero exit on failure or missing data |
+| [`logit_compare.py`](logit_compare.py) | One calculator (policy `num-2`) for raw-logit pairs: reference-side window, full-vocabulary KL, argmax gaps; `calibrate` a rule from a reference control, `judge` with completeness checks and exit codes |
+| [`final_logits.cpp`](final_logits.cpp) | llama.cpp side of `astral dump-final-logits`: raw logits after chosen prefix lengths, one token per decode (`single`) or one batch (`batch`) |
 | [`stream_bench.py`](stream_bench.py) | Streaming `/v1/completions` benchmark: TTFT, inter-chunk latency, decode tok/s |
 | [`stream_report.py`](stream_report.py) | Per-configuration summary and paired CSVs |
 | [`paired_stats.py`](paired_stats.py) | Case-weighted paired bootstrap of per-prompt latencies |
@@ -53,12 +55,29 @@ python3 stream_report.py runs/
 python3 paired_stats.py --input runs/pair_llama-ar__astral-ar.csv --output runs/ar.json
 ```
 
+## Same-units comparison of batched and token-by-token logits
+
+`astral dump-final-logits` and `final_logits` write raw f32 logits for the same prefixes, so
+both engines go through one calculator. A manifest line is `name<TAB>L1,L2,...<TAB>ids...`.
+
+```bash
+g++ -O2 -std=c++17 -I$LL/include -I$LL/ggml/include final_logits.cpp -L$B -lllama -Wl,-rpath,$B -o final_logits
+./final_logits $M manifest.tsv ll single; ./final_logits $M manifest.tsv ll batch
+astral dump-final-logits $M manifest.tsv as
+# Reference shape control first; freeze the rule before looking at the candidate.
+python3 logit_compare.py compare manifest.tsv ll:single ll:batch ref_shape.jsonl
+python3 logit_compare.py calibrate ref_shape.jsonl rule.json --factor 2 --margin 0.5
+python3 logit_compare.py compare manifest.tsv as:step as:prefill astral_shape.jsonl
+python3 logit_compare.py judge manifest.tsv astral_shape.jsonl rule.json    # exit 0 / 1 / 2
+python3 -m unittest test_logit_compare                                      # offline tests
+```
+
 ## Caveats
 
 - `kld_compare.py` and `near_top_diff.py` read the u16-encoded log-softmax of the llama.cpp file
   format on both sides. `astral cmp-prefill` prints raw-logit differences over a step-side
   window and a float64 full-vocabulary KL. The two sets of numbers are **not in the same
-  units**; calibrate any threshold with the same calculator on both sides.
+  units**; use `logit_compare.py` for anything that is judged.
 - `greedy_reference.py` runs with `ignore_eos`; compare against `ref_top1` (raw argmax), not
   the sampled token.
 - Inkling 2's chat template has no generation prompt: the model emits `<|message_model|>`
