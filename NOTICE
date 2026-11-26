@@ -32,3 +32,14 @@ Astral's Inkling 2 Mini forward pass is verified against llama.cpp's implementat
 
 The Inkling 2 Mini DSpark draft follows the published model definition in vLLM,
 Copyright contributors to the vLLM project, Apache License 2.0.
+
+-------------------------------------------------------------------------------
+Modifications (inkling-4090-engine fork)
+-------------------------------------------------------------------------------
+This fork modifies Astral Inference Server as of upstream commit
+49a0a2bee3270ad7518cebe7a059496b250180d1. Files changed by the fork's
+contributors: crates/core/src/arch.rs, crates/quant/src/lib.rs,
+crates/gpu/src/lib.rs, crates/gpu/src/vmm.rs, crates/cli/src/main.rs and the
+documentation listed in CHANGELOG.md. Files added by the fork carry the header
+"Copyright (c) 2026 inkling-4090-engine contributors". See the git history for
+every change. The fork is not affiliated with Synthetic Minds LTD.

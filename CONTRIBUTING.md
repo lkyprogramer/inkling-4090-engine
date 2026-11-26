@@ -1,5 +1,11 @@
 # Contributing to Astral Inference Server
 
+> **This fork (inkling-4090-engine).** Issues and pull requests about the RTX 4090 port, the
+> comparison tools or anything else added here go to
+> [lkyprogramer/inkling-4090-engine](https://github.com/lkyprogramer/inkling-4090-engine). Fixes that
+> apply to upstream as well (such as the legacy-stream ordering fix) are best also offered to
+> [upstream](https://github.com/syntheticminds-lab/Astral-Inference-Server). The rules below apply to both.
+
 Thank you for your interest in contributing to Astral Inference Server. Bug reports, benchmarks on new hardware, documentation fixes and code are all welcome.
 
 ## Reporting issues

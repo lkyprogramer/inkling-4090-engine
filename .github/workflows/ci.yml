@@ -1,0 +1,22 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  host:
+    # Host-only checks: without nvcc the workspace builds with no GPU kernels, which is
+    # enough for formatting and the CPU unit tests. GPU checks (astral selftest,
+    # verify-model) need a CUDA GPU and are run by hand; see CONTRIBUTING.md.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain from rust-toolchain.toml
+        run: rustup show active-toolchain || rustup toolchain install
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Unit tests
+        run: cargo test --workspace
+      - name: Python scripts compile
+        run: python3 -m py_compile bench/llamacpp_compare/*.py bench/serving/*.py

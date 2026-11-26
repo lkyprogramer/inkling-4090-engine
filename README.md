@@ -16,6 +16,29 @@ Fast, lean LLM inference and serving in Rust and CUDA
 | <a href="https://www.syntheticmindslab.com/astral"><b>Website</b></a> | <a href="docs/README.md"><b>Documentation</b></a> | <a href="docs/getting_started/quickstart.md"><b>Quickstart</b></a> | <a href="docs/benchmarks/inkling2_mini.md"><b>Benchmarks</b></a> | <a href="docs/models/supported_models.md"><b>Supported Models</b></a> | <a href="CONTRIBUTING.md"><b>Contributing</b></a> |
 </p>
 
+> [!IMPORTANT]
+> **About this fork.** `inkling-4090-engine` is an unofficial fork of [Astral Inference Server](https://github.com/syntheticminds-lab/Astral-Inference-Server) by Synthetic Minds LTD, ported to and validated on a single **GeForce RTX 4090 (sm_89)** for Inkling 2 Mini research. It is not affiliated with or endorsed by Synthetic Minds LTD; "Astral" is their trademark and is used here only to name the origin of the code. Crate and binary names are unchanged. Everything after the next section is the upstream README.
+
+## This fork
+
+Based on upstream `49a0a2b`. Changes so far:
+
+- **RTX 4090 support:** `ArchProfile::Sm89` (F80 kernel family); build with `ASTRAL_CUDA_ARCHS=89`. See [RTX 4090](docs/hardware/rtx4090.md).
+- **Bug fix (all GPUs):** synchronous uploads and fills now finish on the legacy stream before work starts on Astral's non-blocking streams. Before the fix, kernels could read half-copied inputs; on a PCIe Gen3 host the self-test failed 3–4 MXFP4 cases.
+- **Comparison tools:** `astral dump-logits` writes Astral's log-probs in llama.cpp's `--kl-divergence-base` format; `astral cmp-prefill` reports where batched and token-by-token logits differ; [bench/llamacpp_compare](bench/llamacpp_compare/README.md) holds the analysis and serving-benchmark scripts.
+
+On one RTX 4090 with the unsloth UD-Q4_K_XL GGUF, compared with llama.cpp b12751 on the same file ([details](docs/benchmarks/inkling2_mini_rtx4090.md)):
+
+| | Astral (this fork) | llama.cpp | Speedup |
+|---|---|---|---|
+| Decode, no draft | 143.1 tok/s | 74.7 tok/s | 1.92× |
+| Decode, DSpark draft | 173.9 tok/s | 90.5 tok/s (k = 3) | 1.91× |
+| KL divergence vs llama.cpp, decode path | mean 0.0018, p99 0.023 | llama.cpp's own `-ub 512` vs `-ub 1`: 0.0020 / 0.028 | |
+
+Open items: contexts beyond 8,192 tokens, observability hooks for the loop passes, and tuning the prefill (`mma3`) and MoE paths for sm_89. Issues and pull requests for this fork go to [this repository](https://github.com/lkyprogramer/inkling-4090-engine/issues); upstream issues belong upstream.
+
+---
+
 🔥 **New:** speculative decoding with the official Inkling 2 Mini DSpark draft and an adaptive draft length. On one H100, Astral decodes **32%** faster than vLLM without a draft and **11%** faster with one. See the [benchmarks](docs/benchmarks/inkling2_mini.md).
 
 > **Status:** Version 2.5 is now open source and ready for testing.
