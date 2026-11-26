@@ -122,7 +122,9 @@ impl VirtualRange {
         self.ctx.bind()?;
         let d = drv()?;
         // SAFETY: destination is inside the mapped range (checked); source slice is valid.
-        check("cuMemcpyHtoD_v2", unsafe { (d.fns.cuMemcpyHtoD_v2)(self.base + offset as u64, data.as_ptr() as *const c_void, data.len()) })
+        check("cuMemcpyHtoD_v2", unsafe { (d.fns.cuMemcpyHtoD_v2)(self.base + offset as u64, data.as_ptr() as *const c_void, data.len()) })?;
+        // See DeviceBuffer::copy_from_slice: finish the pageable DMA before returning.
+        crate::sync_legacy_stream(d)
     }
 
     /// Synchronous device-to-host read from the mapped region.

@@ -44,6 +44,12 @@ use std::sync::Arc;
 /// A raw device address.
 pub type DevicePtr = sys::CUdeviceptr;
 
+/// Waits for work queued on the legacy default stream (synchronous memset / memcpy calls).
+pub(crate) fn sync_legacy_stream(d: &sys::Driver) -> Result<()> {
+    // SAFETY: the null handle names the legacy default stream of the bound context.
+    check("cuStreamSynchronize", unsafe { (d.fns.cuStreamSynchronize)(std::ptr::null_mut()) })
+}
+
 fn drv() -> Result<&'static sys::Driver> {
     sys::driver().map_err(|detail| AstralError::LibraryNotFound { lib: "libcuda".into(), detail })
 }
@@ -298,6 +304,10 @@ impl<T: DeviceCopy> DeviceBuffer<T> {
         if bytes > 0 {
             // SAFETY: `ptr` is a live allocation of `bytes` bytes.
             check("cuMemsetD8_v2", unsafe { (d.fns.cuMemsetD8_v2)(buf.ptr, 0, bytes) })?;
+            // cuMemsetD8 on device memory is asynchronous on the legacy stream, which does not
+            // order with Astral's CU_STREAM_NON_BLOCKING streams: wait so a later kernel cannot
+            // be overwritten by the fill.
+            sync_legacy_stream(d)?;
         }
         Ok(buf)
     }
@@ -319,7 +329,10 @@ impl<T: DeviceCopy> DeviceBuffer<T> {
         self.ctx.bind()?;
         let d = drv()?;
         // SAFETY: both regions are `bytes()` long; the host slice is valid for reads.
-        check("cuMemcpyHtoD_v2", unsafe { (d.fns.cuMemcpyHtoD_v2)(self.ptr, data.as_ptr() as *const c_void, self.bytes()) })
+        check("cuMemcpyHtoD_v2", unsafe { (d.fns.cuMemcpyHtoD_v2)(self.ptr, data.as_ptr() as *const c_void, self.bytes()) })?;
+        // From pageable memory the call can return before the DMA lands; non-blocking streams
+        // are not ordered after it, so finish it here to keep the copy synchronous.
+        sync_legacy_stream(d)
     }
 
     /// Synchronous device-to-host copy of the whole buffer.
