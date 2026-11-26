@@ -7,12 +7,14 @@
 
 use serde::Serialize;
 
-/// The six Astral target architectures. Anything else is unsupported.
+/// The Astral target architectures. Anything else is unsupported.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ArchProfile {
     /// A100 (sm_80).
     Sm80,
+    /// RTX 4090 / Ada (sm_89): the sm_80 `mma.sync` family plus FP8 tensor cores (unused).
+    Sm89,
     /// H100 (sm_90a).
     Sm90a,
     /// B200 (sm_100a).
@@ -78,6 +80,7 @@ impl ArchProfile {
     pub fn from_compute_capability(major: i32, minor: i32) -> Option<Self> {
         match (major, minor) {
             (8, 0) => Some(Self::Sm80),
+            (8, 9) => Some(Self::Sm89),
             (9, 0) => Some(Self::Sm90a),
             (10, 0) => Some(Self::Sm100a),
             (10, 3) => Some(Self::Sm103a),
@@ -89,7 +92,7 @@ impl ArchProfile {
 
     pub fn kernel_family(self) -> KernelFamily {
         match self {
-            Self::Sm80 => KernelFamily::F80,
+            Self::Sm80 | Self::Sm89 => KernelFamily::F80,
             Self::Sm90a => KernelFamily::F90,
             Self::Sm100a | Self::Sm103a => KernelFamily::F100,
             Self::Sm120a | Self::Sm121a => KernelFamily::F120,
@@ -109,6 +112,7 @@ impl ArchProfile {
     pub fn sm_target(self) -> &'static str {
         match self {
             Self::Sm80 => "80",
+            Self::Sm89 => "89",
             Self::Sm90a => "90a",
             Self::Sm100a => "100a",
             Self::Sm103a => "103a",
@@ -119,10 +123,11 @@ impl ArchProfile {
 
     /// How far each family has been exercised on real silicon (spec 08 §1).
     /// sm_80 (A100-PCIE-40GB, 2026-11-23) and sm_90a (H100 PCIe, 2026-11-24) have run the
-    /// P0 kernels and self-test; no model kernels exist yet. Everything else is design-only.
+    /// P0 kernels and self-test; no model kernels exist yet. sm_89 (RTX 4090, 2026-11-26) ran the
+    /// self-test and Inkling verify-model in the inkling-4090 fork. Everything else is design-only.
     pub fn validation(self) -> Validation {
         match self {
-            Self::Sm80 | Self::Sm90a => Validation::Logic,
+            Self::Sm80 | Self::Sm89 | Self::Sm90a => Validation::Logic,
             _ => Validation::Specified,
         }
     }
@@ -140,6 +145,18 @@ impl ArchProfile {
                 fp8_tensor_core: false,
                 fp4: Fp4Path::None,
                 low_precision_formats: vec![],
+            },
+            Self::Sm89 => IsaFeatures {
+                cp_async: true,
+                wgmma: false,
+                tma: false,
+                tcgen05: false,
+                tmem: false,
+                clusters: false,
+                int8_tensor_core: true,
+                fp8_tensor_core: true,
+                fp4: Fp4Path::None,
+                low_precision_formats: vec!["fp8_e4m3", "fp8_e5m2"],
             },
             Self::Sm90a => IsaFeatures {
                 cp_async: true,
@@ -236,6 +253,7 @@ mod tests {
     #[test]
     fn six_targets_map_exactly() {
         assert_eq!(ArchProfile::from_compute_capability(8, 0), Some(ArchProfile::Sm80));
+        assert_eq!(ArchProfile::from_compute_capability(8, 9), Some(ArchProfile::Sm89));
         assert_eq!(ArchProfile::from_compute_capability(9, 0), Some(ArchProfile::Sm90a));
         assert_eq!(ArchProfile::from_compute_capability(10, 0), Some(ArchProfile::Sm100a));
         assert_eq!(ArchProfile::from_compute_capability(10, 3), Some(ArchProfile::Sm103a));
@@ -246,7 +264,7 @@ mod tests {
     #[test]
     fn unknown_capabilities_are_rejected_not_rounded() {
         // A ">= N" rule would wrongly accept all of these.
-        for (maj, min) in [(8, 6), (8, 9), (9, 1), (10, 1), (10, 2), (11, 0), (12, 2), (13, 0)] {
+        for (maj, min) in [(8, 6), (8, 7), (9, 1), (10, 1), (10, 2), (11, 0), (12, 2), (13, 0)] {
             assert_eq!(ArchProfile::from_compute_capability(maj, min), None, "{maj}.{min}");
         }
     }
@@ -262,6 +280,17 @@ mod tests {
     }
 
     #[test]
+    fn rtx4090_uses_the_sm80_family_without_fp4() {
+        let p = ArchProfile::Sm89;
+        assert_eq!(p.kernel_family(), KernelFamily::F80);
+        assert_eq!(p.sm_target(), "89");
+        assert_eq!(p.fallback_family(), None);
+        let f = p.isa_features();
+        assert!(f.cp_async && !f.wgmma && !f.tma && f.fp8_tensor_core);
+        assert_eq!(f.fp4, Fp4Path::None);
+    }
+
+    #[test]
     fn a100_has_no_fp8_or_fp4() {
         let f = ArchProfile::Sm80.isa_features();
         assert!(!f.fp8_tensor_core);
@@ -269,8 +298,9 @@ mod tests {
     }
 
     #[test]
-    fn only_a100_and_h100_have_run_on_silicon() {
+    fn only_a100_h100_and_4090_have_run_on_silicon() {
         assert_eq!(ArchProfile::Sm80.validation(), Validation::Logic);
+        assert_eq!(ArchProfile::Sm89.validation(), Validation::Logic);
         assert_eq!(ArchProfile::Sm90a.validation(), Validation::Logic);
         for p in [ArchProfile::Sm100a, ArchProfile::Sm103a, ArchProfile::Sm120a, ArchProfile::Sm121a] {
             assert_eq!(p.validation(), Validation::Specified);

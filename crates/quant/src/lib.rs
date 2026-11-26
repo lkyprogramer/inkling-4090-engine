@@ -545,7 +545,8 @@ mod tests {
         dequant_mxfp4(&b, &mut out);
         assert!(out[..16].iter().all(|&v| v == 6.0));
         assert!(out[16..].iter().all(|&v| v == -0.5));
-        assert_eq!(e8m0_scale_half(0), 2f32.powi(-128));
+        // 2^-128 is subnormal: build it from bits (powi may flush it to zero).
+        assert_eq!(e8m0_scale_half(0), f32::from_bits(1 << 21));
         assert_eq!(e8m0_scale_half(254), 2f32.powi(126));
     }
 
