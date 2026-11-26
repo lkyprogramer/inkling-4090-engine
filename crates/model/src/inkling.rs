@@ -53,6 +53,8 @@ pub struct Config {
     pub expert_scale: f32,
     pub softcap: f32,
     pub attn_res_block: usize,
+    /// `loop.varying` (varloop checkpoints): trained on several pass counts.
+    pub varying: bool,
 }
 
 impl Config {
@@ -101,7 +103,22 @@ impl Config {
             expert_scale: g.arch_key("expert_weights_scale").and_then(|v| v.as_f64()).unwrap_or(1.0) as f32,
             softcap: g.arch_key("final_logit_softcapping").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32,
             attn_res_block: u("attn_res.block_size")?,
+            varying: g.arch_key("loop.varying").and_then(|v| v.as_bool()).unwrap_or(false),
         };
+        let mut c = c;
+        // Pass-count override (research): ASTRAL_PASSES=R rebuilds the slots, KV, conv state and
+        // the attention-residual bank for R passes. Only varloop checkpoints (loop.varying) were
+        // trained on more than one count (1-5).
+        if let Some(r) = std::env::var("ASTRAL_PASSES").ok().filter(|v| !v.is_empty()) {
+            let r: usize = r.parse().map_err(|_| bad(format!("ASTRAL_PASSES={r:?} is not a pass count")))?;
+            if !(1..=MAX_PASSES).contains(&r) {
+                return Err(bad(format!("ASTRAL_PASSES={r} outside 1..={MAX_PASSES}")));
+            }
+            if r != c.passes {
+                eprintln!("inkling: {r} passes instead of {} ({} loop)", c.passes, if c.varying { "variable" } else { "fixed" });
+            }
+            c.passes = r;
+        }
         if c.swa.len() != c.n_layer || c.core_end > c.n_layer || c.core_start >= c.core_end || c.passes < 1 {
             return Err(bad("inconsistent layer / loop configuration".into()));
         }
@@ -118,6 +135,12 @@ impl Config {
 
     fn kv_width(&self) -> usize {
         self.kv_heads * self.head_dim
+    }
+
+    /// Attention-residual bank rows: one per block start over all visits, plus headroom.
+    pub(crate) fn bank_rows(&self) -> usize {
+        let b = self.attn_res_block.max(1);
+        self.n_slots().div_ceil(b) + 2
     }
 
     /// Short-conv channels: K, V, attention output, FFN output.
@@ -342,7 +365,7 @@ impl Weights {
 pub const PREFILL_TMAX: usize = 2048;
 
 /// Scratch buffers for up to `tmax` tokens per forward pass, all token-major (decode uses row
-/// 0). The attention-residual bank holds `BANK_ROWS` rows of `[tmax][dim]`.
+/// 0). The attention-residual bank holds `Config::bank_rows` rows of `[tmax][dim]`.
 struct Scratch {
     tmax: usize,
     cur: DeviceBuffer<f32>,
@@ -432,7 +455,8 @@ impl DevWork {
 }
 
 /// Rows of the attention-residual bank: prelude + 2 per pass + postlude, with headroom.
-const BANK_ROWS: usize = 15;
+/// Largest pass count `ASTRAL_PASSES` accepts.
+pub const MAX_PASSES: usize = 10;
 
 /// Kernels and the stream, borrowed together with the scratch buffers.
 struct Exec<'a> {
@@ -572,7 +596,7 @@ impl Session {
             y: z(t * ke * d)?,
             cd: z((3 * t * rank).max((1 + astral_kernels::inkling::CTRL_T_SPLITS as usize) * t * rank))?,
             crms: z(2 * t)?,
-            bank: z(BANK_ROWS * t * d)?,
+            bank: z(c.bank_rows() * t * d)?,
             prelude: z(t * d)?,
             bank_out: z(t * d)?,
             logits: z(c.vocab_padded)?,
@@ -951,7 +975,7 @@ impl Session {
     pub fn arm_probe(&mut self) -> Result<()> {
         if self.s.probe.is_none() {
             let floats = std::env::var("ASTRAL_TRACE_FLOATS").ok().and_then(|v| v.parse().ok()).unwrap_or(24usize << 20);
-            self.s.probe = Some(Box::new(probe::Probe::new(self.stream.context(), self.w.cfg.dim, self.w.cfg.vocab_padded, floats)?));
+            self.s.probe = Some(Box::new(probe::Probe::new(self.stream.context(), self.w.cfg.dim, self.w.cfg.vocab_padded, floats, self.w.cfg.bank_rows())?));
         }
         let p = self.s.probe.as_deref_mut().expect("allocated above");
         p.lens = std::env::var("ASTRAL_TRACE_LENS").map_or(true, |v| v != "0");
@@ -1670,7 +1694,7 @@ fn layer(
     }
     ex.mm(&l.wo, &s.qa_attn, &mut s.o, ntok, &s.items_dense, &s.work[0])?;
     let starts_block = ip % cfg.attn_res_block == 0;
-    if starts_block && *next_row >= BANK_ROWS {
+    if starts_block && *next_row >= cfg.bank_rows() {
         return Err(bad("attention-residual bank full".into()));
     }
     {

@@ -174,6 +174,7 @@ fn metadata(cfg: &Json, name: &str) -> Result<Vec<(String, Value)>> {
     put("loop.start", Value::U32(lu("core_start")?));
     put("loop.end", Value::U32(lu("core_end")?));
     put("loop.gate_rank", Value::U32(lu("gate_rank")?));
+    put("loop.varying", Value::Bool(lc["is_varloop"].as_bool().unwrap_or(false)));
     put("vocab_size", Value::U32(u("vocab_size")?));
     put("vocab_size_unpadded", Value::U32(u("unpadded_vocab_size")?));
     put("attention.sliding_window", Value::U32(u("sliding_window_size")?));

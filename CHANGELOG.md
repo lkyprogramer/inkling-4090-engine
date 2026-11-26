@@ -8,6 +8,7 @@ Changes in this fork on top of upstream `49a0a2b`.
 
 ### Added
 
+- `ASTRAL_PASSES=R` (1–10) overrides the loop pass count of Inkling 2 Mini checkpoints; the attention-residual bank is sized from the pass count, and the native checkpoint loader passes `loop_config.is_varloop` on as `loop.varying`. Loads and runs the varloop research checkpoint at 1–10 passes; see [docs/hardware/rtx4090.md](docs/hardware/rtx4090.md#pass-count-research).
 - `astral trace`: read-only probes of the looped forward pass at chosen decode positions (block mixes, cross-pass messages, loop controllers, routing, attention mass, the stream and a raw lens), recomputed on the host and checked against the device output; see [docs/trace.md](docs/trace.md). Probes off, on and eager give bit-identical logits.
 - `ArchProfile::Sm89` for the RTX 4090 (F80 kernel family, FP8 tensor cores reported, no FP4 path); validation level Logic.
 - `astral dump-logits <model> <llama kld base> <out>`: token-by-token log-probs in llama.cpp's `--kl-divergence-base` format.

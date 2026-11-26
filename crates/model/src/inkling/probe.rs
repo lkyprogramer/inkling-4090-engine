@@ -10,7 +10,7 @@
 //! recomputes the derived quantities on the host (f64) from the formulas of the kernels, with
 //! a reconstruction error against the device output for each of them.
 
-use super::{Exec, Weights, BANK_ROWS};
+use super::{Exec, Weights};
 use astral_core::{AstralError, Result};
 use astral_gpu::{Context, DeviceBuffer, Stream};
 use astral_kernels::ops::{GemvType, QAct};
@@ -53,11 +53,11 @@ pub(crate) struct Probe {
     lens_logits: DeviceBuffer<f32>,
     entries: Vec<Entry>,
     /// Visit that wrote each attention-residual bank row in this step.
-    pub(crate) row_visit: [Option<usize>; BANK_ROWS],
+    pub(crate) row_visit: Vec<Option<usize>>,
 }
 
 impl Probe {
-    pub(crate) fn new(ctx: &Arc<Context>, dim: usize, vocab_padded: usize, floats: usize) -> Result<Self> {
+    pub(crate) fn new(ctx: &Arc<Context>, dim: usize, vocab_padded: usize, floats: usize, bank_rows: usize) -> Result<Self> {
         Ok(Self {
             armed: false,
             ctx: Ctx::default(),
@@ -70,7 +70,7 @@ impl Probe {
             lens_mn: DeviceBuffer::zeroed(ctx, dim)?,
             lens_logits: DeviceBuffer::zeroed(ctx, vocab_padded)?,
             entries: Vec::new(),
-            row_visit: [None; BANK_ROWS],
+            row_visit: vec![None; bank_rows],
         })
     }
 
@@ -79,7 +79,7 @@ impl Probe {
         self.f_off = 0;
         self.i_off = 0;
         self.entries.clear();
-        self.row_visit = [None; BANK_ROWS];
+        self.row_visit.iter_mut().for_each(|r| *r = None);
         self.ctx = Ctx::default();
     }
 
@@ -145,7 +145,7 @@ pub(crate) struct Staged {
     f: Vec<f32>,
     i: Vec<i32>,
     entries: Vec<Entry>,
-    row_visit: [Option<usize>; BANK_ROWS],
+    row_visit: Vec<Option<usize>>,
 }
 
 impl Probe {
@@ -153,7 +153,7 @@ impl Probe {
         self.armed = false;
         let f = self.f.to_vec_range(0, self.f_off)?;
         let i = self.i.to_vec_range(0, self.i_off)?;
-        Ok(Staged { f, i, entries: std::mem::take(&mut self.entries), row_visit: self.row_visit })
+        Ok(Staged { f, i, entries: std::mem::take(&mut self.entries), row_visit: self.row_visit.clone() })
     }
 }
 
@@ -372,7 +372,15 @@ pub(crate) fn report(st: &Staged, a: &ReportIn) -> Result<Vec<Value>> {
     for (c, es) in &visits {
         let get = |k: &str| -> Vec<&Entry> { entries(es, k) };
         let one = |k: &str| -> Option<&[f32]> { entries(es, k).first().map(|e| slice(st, e)) };
-        let stage = if c.visit == usize::MAX { "head" } else if c.ip < start { "prelude" } else if c.ip < end { "core" } else { "coda" };
+        let stage = if c.visit == usize::MAX {
+            "head"
+        } else if c.ip < start {
+            "prelude"
+        } else if c.ip < end {
+            "core"
+        } else {
+            "coda"
+        };
         let mut rec = json!({"pos": a.pos, "token": a.token, "target": a.target, "visit": if c.visit == usize::MAX { Value::Null } else { json!(c.visit) },
                              "slot": c.slot, "layer": c.ip, "pass": c.pass, "stage": stage});
         let mix = |skey: &str, okey: &str, query: &[f32], upd: &mut dyn FnMut(&str, f64)| -> Option<Value> {
