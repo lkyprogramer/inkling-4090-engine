@@ -15,9 +15,10 @@ Astral Inference Server is an inference engine and OpenAI-compatible server for 
 ## Reference
 
 - [Supported models](models/supported_models.md)
-- [Supported hardware](hardware/supported_hardware.md)
+- [Supported hardware](hardware/supported_hardware.md), including the [RTX 4090 port](hardware/rtx4090.md)
 - [Environment variables](configuration/environment_variables.md)
-- [Benchmarks: Inkling 2 Mini](benchmarks/inkling2_mini.md)
+- [Benchmarks: Inkling 2 Mini](benchmarks/inkling2_mini.md) (H100) and [on RTX 4090](benchmarks/inkling2_mini_rtx4090.md)
+- [llama.cpp comparison tools](../bench/llamacpp_compare/README.md)
 
 ## Editions
 

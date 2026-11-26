@@ -6,7 +6,8 @@ Astral runs on NVIDIA GPUs with CUDA 12 drivers, one GPU per process.
 |---|---|---|
 | Hopper (H100) | `sm_90a` | **Verified.** All results and benchmarks in these docs |
 | Ampere data-centre (A100) | `sm_80` | Default build target; early releases verified, current release not re-verified |
-| Ampere / Ada workstation and consumer (`sm_86`, `sm_89`) | `ASTRAL_CUDA_ARCHS=86` / `89` | Builds; not tested |
+| Ada consumer (RTX 4090) | `sm_89` (`ASTRAL_CUDA_ARCHS=89`) | **Verified in this fork** for Inkling 2 Mini, see [RTX 4090](rtx4090.md) |
+| Ampere workstation and consumer | `sm_86` (`ASTRAL_CUDA_ARCHS=86`) | Builds; not tested |
 | Blackwell (`sm_100`, `sm_120`) | `ASTRAL_CUDA_ARCHS=100a` / `120a` | Builds; native FP4 tensor cores not used yet |
 
 Features enable themselves by compute capability:
@@ -17,7 +18,7 @@ Features enable themselves by compute capability:
 
 ## Memory
 
-Inkling 2 Mini needs about 18 GB for weights plus 0.6 GB for the DSpark draft, and memory for the context. A 24 GB GPU is tight; 40 GB or more is recommended.
+Inkling 2 Mini needs about 18 GB for weights plus 0.6 GB for the DSpark draft, and memory for the context. A 24 GB GPU is tight but works: on an RTX 4090 the UD-Q4_K_XL GGUF with the DSpark draft serves a context of 8,192 tokens.
 
 ## Not supported
 

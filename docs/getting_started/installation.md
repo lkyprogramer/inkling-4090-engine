@@ -24,6 +24,8 @@ Kernels are compiled for the targets in `ASTRAL_CUDA_ARCHS` (default `80`). Buil
 ASTRAL_CUDA_ARCHS=80,90a cargo build --release
 ```
 
+For an RTX 4090 use `ASTRAL_CUDA_ARCHS=89`; see [RTX 4090](../hardware/rtx4090.md) for installing the toolkit in a user directory without touching the driver.
+
 Each target is compiled to SASS ahead of time (`-gencode arch=compute_X,code=sm_X`), so the binary carries no PTX JIT step.
 
 ## Check the installation
