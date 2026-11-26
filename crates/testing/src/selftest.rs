@@ -44,6 +44,7 @@ pub fn run(ctx: &Arc<Context>) -> Result<Vec<CaseResult>> {
     mxfp4_cases(ctx, &mut out)?;
     mxfp4_mma_cases(ctx, &mut out)?;
     gemv_cases(ctx, &mut out)?;
+    split_k_cases(ctx, &mut out)?;
     Ok(out)
 }
 
@@ -378,6 +379,79 @@ fn random_ggml(rng: &mut Rng, ty: GemvType, n_mats: usize, n: usize, k: usize) -
             })
             .collect(),
     }
+}
+
+/// Deterministic split-K (prefill GEMMs): the grouped tensor-core GEMM on shapes small enough to
+/// split K, run twice with the split workspace (bit-identical) and against the atomic-add path;
+/// and the prefill loop-controller projection (`ctrl_t`) run twice (bit-identical).
+fn split_k_cases(ctx: &Arc<Context>, out: &mut Vec<CaseResult>) -> Result<()> {
+    use astral_kernels::inkling::{InklingOps, CTRL_T_SPLITS};
+    use astral_kernels::ops::{MmaWork, QAct};
+    let reg = KernelRegistry::load(ctx)?;
+    let atomic = Gemv::new(&reg)?;
+    let mut det = Gemv::new(&reg)?;
+    det.reserve_split_workspace(ctx, 1 << 20)?;
+    let stream = Stream::new(ctx)?;
+    let mut rng = Rng::new(0x5B1);
+    // (type, n, k, matrices, tokens): attention output and expert down at a short prompt.
+    let cases: &[(GemvType, usize, usize, usize, usize)] = &[(GemvType::Q8_0, 2304, 3072, 1, 5), (GemvType::Nvfp4, 2304, 1152, 3, 6)];
+    for &(ty, n, k, mats, nt) in cases {
+        let raw = random_ggml(&mut rng, ty, mats, n, k);
+        let (qs, aux) = match ty {
+            GemvType::Q8_0 => astral_quant::repack_q8_0(&raw)?,
+            _ => astral_quant::repack_nvfp4(&raw)?,
+        };
+        let m = GemvMatrix::upload(ctx, ty, n as u32, k as u32, mats as u32, &qs, &aux, None)?;
+        let x = rng.vec_f32(nt * k, 1.0);
+        let dx = DeviceBuffer::from_slice(ctx, &x)?;
+        let mut qa = QAct::with_f16(ctx, k as u32, nt as u32)?;
+        atomic.quantize(&stream, &dx, k as u32, nt as u32, &mut qa)?;
+        let mut work = MmaWork::default();
+        for e in 0..mats as u32 {
+            let rows: Vec<(u32, u32)> = (0..nt as u32).filter(|t| t % mats as u32 == e).map(|t| (t, t)).collect();
+            work.push(e, &rows);
+        }
+        let (items, xidx, yidx) = (DeviceBuffer::from_slice(ctx, &work.items)?, DeviceBuffer::from_slice(ctx, &work.xidx)?, DeviceBuffer::from_slice(ctx, &work.yidx)?);
+        let (n_items, idx_len) = ((work.items.len() / 3) as u32, work.xidx.len() as u32);
+        let run = |g: &Gemv| -> Result<Vec<f32>> {
+            let mut y = DeviceBuffer::<f32>::zeroed(ctx, nt * n)?;
+            g.launch_mma(&stream, &m, &qa, nt as u32, &mut y, nt as u32, &items, n_items, &xidx, &yidx, idx_len)?;
+            stream.synchronize()?;
+            y.to_vec()
+        };
+        let (d1, d2, a1) = (run(&det)?, run(&det)?, run(&atomic)?);
+        let same = d1.iter().zip(&d2).all(|(a, b)| a.to_bits() == b.to_bits());
+        let l1: Vec<f64> = a1.iter().map(|v| (v.abs() as f64).max(1.0)).collect();
+        let rep = err_vs_l1(&d2, &d1, &l1);
+        out.push(CaseResult { kernel: "gemm_mma3 split-K workspace", case: format!("{ty:?} n{n} k{k} t{nt}: repeat bit-identical"), error: rep, tolerance: 0.0, pass: same, info: None });
+        let error = err_vs_l1(&d1, &a1, &l1);
+        out.push(CaseResult { kernel: "gemm_mma3 split-K workspace", case: format!("{ty:?} n{n} k{k} t{nt}: vs atomic adds"), error, tolerance: 1e-5, pass: error.max_scaled <= 1e-5, info: None });
+    }
+    // Loop-controller projection for a short prefill (dim 2304, rank 64).
+    let ops = InklingOps::new(&reg)?;
+    let (dim, rank, nt) = (2304usize, 64usize, 7usize);
+    let up = |r: &mut Rng, n: usize, k: usize| -> Result<GemvMatrix> {
+        let w = r.vec_f32(n * k, 0.05);
+        let bytes: Vec<u8> = w.iter().flat_map(|v| v.to_le_bytes()).collect();
+        GemvMatrix::upload(ctx, GemvType::F32, n as u32, k as u32, 1, &bytes, &[], None)
+    };
+    let (wd, wgf) = (up(&mut rng, rank, 2 * dim)?, up(&mut rng, 2 * dim, rank)?);
+    let x = DeviceBuffer::from_slice(ctx, &rng.vec_f32(nt * dim, 1.0))?;
+    let msg = DeviceBuffer::from_slice(ctx, &rng.vec_f32(nt * dim, 1.0))?;
+    let ctrl = || -> Result<Vec<f32>> {
+        let mut rms = DeviceBuffer::<f32>::zeroed(ctx, 2 * nt)?;
+        let mut cd = DeviceBuffer::<f32>::zeroed(ctx, (1 + CTRL_T_SPLITS as usize) * nt * rank)?;
+        let mut gf = DeviceBuffer::<f32>::zeroed(ctx, nt * 2 * dim)?;
+        let mut o = DeviceBuffer::<f32>::zeroed(ctx, nt * dim)?;
+        ops.ctrl_t(&stream, &wd, &wgf, &x, dim, &msg, dim, &mut rms, &mut cd, &mut gf, &mut o, dim as u32, nt as u32)?;
+        stream.synchronize()?;
+        o.to_vec()
+    };
+    let (c1, c2) = (ctrl()?, ctrl()?);
+    let same = c1.iter().zip(&c2).all(|(a, b)| a.to_bits() == b.to_bits());
+    let l1 = vec![1.0f64; c1.len()];
+    out.push(CaseResult { kernel: "ctrl_t split-K", case: format!("dim{dim} rank{rank} t{nt}: repeat bit-identical"), error: err_vs_l1(&c2, &c1, &l1), tolerance: 0.0, pass: same, info: None });
+    Ok(())
 }
 
 /// General GEMV (all four weight types) vs the CPU decoders on the original GGUF bytes,

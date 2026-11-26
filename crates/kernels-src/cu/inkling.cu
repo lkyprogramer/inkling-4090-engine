@@ -1341,8 +1341,9 @@ extern "C" __global__ void __launch_bounds__(256) astral_ink_ctrl_combine_t(cons
 // Small f32 GEMM for the prefill loop controller: C[m][n] (+)= sum_k A(m, k) * W[n * ldw + k].
 // A(m, k) = k < k_split ? a0[m * lda + k] * s(m, 0) : a1[m * lda1 + k - k_split] * s(m, 1), with
 // s from `row_scale` ([m][2], or 1) -- so concat(rms(x), rms(msg)) is never materialised.
-// 32x32 tiles, BK 32, 256 threads (2x2 outputs each); grid z splits K (`atomic` adds into C,
-// which must start at zero).
+// 32x32 tiles, BK 32, 256 threads (2x2 outputs each); grid z splits K. `atomic`: 0 stores into C
+// (one split), 1 adds atomically into a zeroed C, 2 stores split z into its own slice
+// C + z * M * ldc, for astral_ink_sum_splits to add in split order (bit-reproducible).
 extern "C" __global__ void __launch_bounds__(256) astral_ink_sgemm_tn(const float* __restrict__ a0, const float* __restrict__ a1,
                                                                       unsigned lda, unsigned lda1, unsigned k_split, const float* __restrict__ row_scale,
                                                                       const float* __restrict__ w, unsigned ldw, float* __restrict__ c,
@@ -1352,6 +1353,7 @@ extern "C" __global__ void __launch_bounds__(256) astral_ink_sgemm_tn(const floa
     const unsigned tx = threadIdx.x & 15u, ty = threadIdx.x >> 4;   // 16 x 16 threads
     const unsigned m0 = blockIdx.y * 32u, n0 = blockIdx.x * 32u;
     const unsigned kbeg = blockIdx.z * k_per_split, kend = min(K, kbeg + k_per_split);
+    if (atomic == 2u) c += (u64)blockIdx.z * M * ldc;
     float acc[2][2] = {{0.0f, 0.0f}, {0.0f, 0.0f}};
     for (unsigned k0 = kbeg; k0 < kend; k0 += 32u) {
         for (unsigned i = threadIdx.x; i < 32u * 32u; i += blockDim.x) {
@@ -1384,10 +1386,20 @@ extern "C" __global__ void __launch_bounds__(256) astral_ink_sgemm_tn(const floa
         for (unsigned j = 0; j < 2; ++j) {
             const unsigned m = m0 + ty * 2u + i, n = n0 + tx * 2u + j;
             if (m < M && n < N) {
-                if (atomic) atomicAdd(&c[(u64)m * ldc + n], acc[i][j]);
+                if (atomic == 1u) atomicAdd(&c[(u64)m * ldc + n], acc[i][j]);
                 else c[(u64)m * ldc + n] = acc[i][j];
             }
         }
+    }
+}
+
+// c[i] = ws[0][i] + ... + ws[splits - 1][i] in split order (slices n apart): the second half of the
+// deterministic split-K in astral_ink_sgemm_tn.
+extern "C" __global__ void astral_ink_sum_splits(const float* __restrict__ ws, float* __restrict__ c, unsigned n, unsigned splits) { PDL_WAIT();
+    for (unsigned i = blockIdx.x * blockDim.x + threadIdx.x; i < n; i += gridDim.x * blockDim.x) {
+        float s = 0.0f;
+        for (unsigned z = 0; z < splits; ++z) s += ws[(u64)z * n + i];
+        c[i] = s;
     }
 }
 

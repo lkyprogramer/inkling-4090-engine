@@ -22,6 +22,10 @@ pub fn moe_items_bound(p: u32, n_expert: u32) -> u32 {
     p.min(n_expert + p.div_ceil(crate::ops::QITEM_ROWS as u32))
 }
 
+/// K splits of the prefill controller's down projection ([`InklingOps::ctrl_t`]); its `cd`
+/// buffer needs `(1 + CTRL_T_SPLITS) * ntok * rank` floats.
+pub const CTRL_T_SPLITS: u32 = 8;
+
 /// Workspace floats [`InklingOps::attn_decode_split`] needs.
 pub fn attn_workspace(ntok: u32, heads: u32, head_dim: u32, max_splits: u32) -> usize {
     ntok as usize * (heads * max_splits * (head_dim + 2)) as usize
@@ -79,6 +83,7 @@ pub struct InklingOps {
     moe_combine_t: Function,
     rms2: Function,
     sgemm_tn: Function,
+    sum_splits: Function,
     ctrl_apply: Function,
     attn_prefill: Function,
     moe_group: Function,
@@ -179,6 +184,7 @@ impl InklingOps {
             moe_combine_t: f("astral_ink_moe_combine_t")?,
             rms2: f("astral_ink_rms2")?,
             sgemm_tn: f("astral_ink_sgemm_tn")?,
+            sum_splits: f("astral_ink_sum_splits")?,
             ctrl_apply: f("astral_ink_ctrl_apply")?,
             attn_prefill: f("astral_ink_attn_prefill")?,
             moe_group: f("astral_ink_moe_group")?,
@@ -1123,20 +1129,27 @@ impl InklingOps {
         need("ctrl_t x", x.dlen(), (nt - 1) * x_stride + d)?;
         need("ctrl_t msg", msg.dlen(), (nt - 1) * msg_stride + d)?;
         need("ctrl_t rms", rms.dlen(), 2 * nt)?;
-        need("ctrl_t cd", cd.len(), nt * rank as usize)?;
+        // cd holds the result (nt * rank) followed by one slice of partial sums per K split.
+        need("ctrl_t cd", cd.len(), nt * rank as usize * (1 + CTRL_T_SPLITS as usize))?;
         need("ctrl_t gf", gf.dlen(), nt * 2 * d)?;
         need("ctrl_t out", out.dlen(), nt * d)?;
         let (mut px, mut xs, mut pm, mut ms, mut pr, mut dd) = (x.dptr(), x_stride as u32, msg.dptr(), msg_stride as u32, rms.dptr(), dim);
         let mut p = [param(&mut px), param(&mut xs), param(&mut pm), param(&mut ms), param(&mut pr), param(&mut dd)];
         Self::go(&self.rms2, s, LaunchConfig { grid: (ntok, 1, 1), block: (256, 1, 1), shared_mem_bytes: 0 }, &mut p)?;
-        cd.zero_async(s)?;
-        // cd = concat(rx x, rm msg) . W_down^T, K = 2 dim split 8 ways.
+        // cd = concat(rx x, rm msg) . W_down^T, K = 2 dim split CTRL_T_SPLITS ways. Each split
+        // stores its partial sums in its own slice after the result and sum_splits adds them in
+        // split order, so the result does not depend on block timing (atomic adds would).
         let k = 2 * dim;
-        let splits = 8u32;
-        let kps = k.div_ceil(splits).next_multiple_of(32);
-        self.sgemm(s, x.dptr(), msg.dptr(), x_stride as u32, msg_stride as u32, dim, rms.dptr(), wd.qs.device_ptr(), k, cd.device_ptr(), rank, ntok, rank, k, kps, true)?;
+        let kps = k.div_ceil(CTRL_T_SPLITS).next_multiple_of(32);
+        let splits = k.div_ceil(kps);
+        let n_cd = nt * rank as usize;
+        let ws = cd.device_ptr() + (n_cd * std::mem::size_of::<f32>()) as DevicePtr;
+        self.sgemm(s, x.dptr(), msg.dptr(), x_stride as u32, msg_stride as u32, dim, rms.dptr(), wd.qs.device_ptr(), k, ws, rank, ntok, rank, k, kps, 2)?;
+        let (mut pw, mut pc, mut nn, mut ns) = (ws, cd.device_ptr(), n_cd as u32, splits);
+        let mut sp = [param(&mut pw), param(&mut pc), param(&mut nn), param(&mut ns)];
+        Self::go(&self.sum_splits, s, LaunchConfig { grid: ((n_cd as u32).div_ceil(256), 1, 1), block: (256, 1, 1), shared_mem_bytes: 0 }, &mut sp)?;
         // gf = cd . W_gf^T (gain rows then forget rows).
-        self.sgemm(s, cd.device_ptr(), 0, rank, rank, rank, 0, wgf.qs.device_ptr(), rank, gf.dptr(), 2 * dim, ntok, 2 * dim, rank, rank.next_multiple_of(32), false)?;
+        self.sgemm(s, cd.device_ptr(), 0, rank, rank, rank, 0, wgf.qs.device_ptr(), rank, gf.dptr(), 2 * dim, ntok, 2 * dim, rank, rank.next_multiple_of(32), 0)?;
         let (mut pg, mut px, mut xs, mut pm, mut ms, mut po, mut dd, mut n) = (gf.dptr(), x.dptr(), x_stride as u32, msg.dptr(), msg_stride as u32, out.dptr(), dim, ntok);
         let mut p = [param(&mut pg), param(&mut px), param(&mut xs), param(&mut pm), param(&mut ms), param(&mut po), param(&mut dd), param(&mut n)];
         Self::go(&self.ctrl_apply, s, LaunchConfig { grid: (dim.div_ceil(256), ntok, 1), block: (256, 1, 1), shared_mem_bytes: 0 }, &mut p)
@@ -1153,7 +1166,7 @@ impl InklingOps {
         need("gemm_f32 c", c.len(), (m * w.n) as usize)?;
         c.zero_async(s)?;
         let kps = w.k.div_ceil(8).next_multiple_of(32);
-        self.sgemm(s, a.dptr(), 0, lda as u32, lda as u32, w.k, 0, w.qs.device_ptr(), w.k, c.device_ptr(), w.n, m, w.n, w.k, kps, true)
+        self.sgemm(s, a.dptr(), 0, lda as u32, lda as u32, w.k, 0, w.qs.device_ptr(), w.k, c.device_ptr(), w.n, m, w.n, w.k, kps, 1)
     }
 
     /// Raw launch of astral_ink_sgemm_tn; callers have checked every extent.
@@ -1175,10 +1188,11 @@ impl InklingOps {
         n: u32,
         k: u32,
         k_per_split: u32,
-        atomic: bool,
+        // 0 store, 1 atomic add into zeroed c, 2 one slice per split (see astral_ink_sgemm_tn).
+        mode: u32,
     ) -> Result<()> {
         let (mut pa0, mut pa1, mut la, mut la1, mut ks, mut prs, mut pw, mut lw, mut pc, mut lc, mut mm, mut nn, mut kk, mut kps, mut at) =
-            (a0, a1, lda, lda1, k_split, row_scale, w, ldw, c, ldc, m, n, k, k_per_split, atomic as u32);
+            (a0, a1, lda, lda1, k_split, row_scale, w, ldw, c, ldc, m, n, k, k_per_split, mode);
         let mut p = [
             param(&mut pa0),
             param(&mut pa1),

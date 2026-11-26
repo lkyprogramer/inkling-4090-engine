@@ -564,7 +564,7 @@ impl Session {
             w: z(t * ke)?,
             gu: z(t * ke * 2 * c.n_ff_exp)?,
             y: z(t * ke * d)?,
-            cd: z(3 * t * rank)?,
+            cd: z((3 * t * rank).max((1 + astral_kernels::inkling::CTRL_T_SPLITS as usize) * t * rank))?,
             crms: z(2 * t)?,
             bank: z(BANK_ROWS * t * d)?,
             prelude: z(t * d)?,
@@ -589,7 +589,12 @@ impl Session {
         let mut me = Self {
             stream: Stream::new(ctx)?,
             eager_stream: Stream::new(ctx)?,
-            gemv: Gemv::new(&reg)?,
+            gemv: {
+                // Deterministic split-K for the prefill GEMMs (bit-reproducible prefill).
+                let mut g = Gemv::new(&reg)?;
+                g.reserve_split_workspace(ctx, SPLIT_WORKSPACE_FLOATS)?;
+                g
+            },
             ops: InklingOps::new(&reg)?,
             rms: RmsNormF32::new(&reg)?,
             kc,
@@ -1227,6 +1232,10 @@ fn host_group() -> bool {
 fn use_mma() -> bool {
     std::env::var_os("ASTRAL_PREFILL_DP4A").is_none()
 }
+
+/// Device floats reserved for deterministic split-K in the prefill GEMMs (16 MiB). Launches that
+/// would need more use fewer K splits.
+const SPLIT_WORKSPACE_FLOATS: usize = 4 << 20;
 
 static DIAG_LIMIT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(usize::MAX);
 

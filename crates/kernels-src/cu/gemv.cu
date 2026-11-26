@@ -1010,9 +1010,12 @@ __device__ __forceinline__ void gemm_mma3(const u8* __restrict__ qs, const u8* _
                                           float* __restrict__ y, unsigned N, unsigned K, u64 mat_qs, u64 mat_aux,
                                           const unsigned* __restrict__ items, const unsigned* __restrict__ xidx,
                                           const unsigned* __restrict__ yidx, unsigned idx_len, unsigned x_rows, unsigned y_rows,
-                                          const float* __restrict__ mat_scale, unsigned n_mats, unsigned kt_per_split) {
+                                          const float* __restrict__ mat_scale, unsigned n_mats, unsigned kt_per_split,
+                                          unsigned partial) {
     // blockIdx.z selects K stages [z * kt_per_split, ..): with more than one split the partial
-    // sums are atomically added into y, which the caller has zeroed.
+    // sums are atomically added into y, which the caller has zeroed -- or, with `partial`, each
+    // split stores into its own zeroed slice y + z * y_rows * N and astral_sum_splits_f32 adds the
+    // slices in split order afterwards (bit-reproducible).
     __shared__ __align__(16) G3Stage<WT> sm[G3_STAGES];
     __shared__ unsigned xrow[MMA_TOK];
     const unsigned tid = threadIdx.x, warp = tid >> 5, lane = tid & 31u, g = lane >> 2, t = lane & 3u;
@@ -1032,7 +1035,8 @@ __device__ __forceinline__ void gemm_mma3(const u8* __restrict__ qs, const u8* _
     const unsigned kt0 = blockIdx.z * kt_per_split;
     if (kt0 >= KT_ALL) return;
     const unsigned KT = min(kt_per_split, KT_ALL - kt0);
-    const bool split = gridDim.z > 1;
+    const bool split = gridDim.z > 1 && !partial;
+    if (partial) y += (u64)blockIdx.z * y_rows * N;
 
     auto load = [&](unsigned stage, unsigned ktl) {
         G3Stage<WT>& S = sm[stage];
@@ -1131,14 +1135,24 @@ extern "C" __global__ void astral_zero_f32(float* __restrict__ y, u64 n) { PDL_W
     for (u64 i = (u64)blockIdx.x * blockDim.x + threadIdx.x; i < n; i += (u64)gridDim.x * blockDim.x) y[i] = 0.0f;
 }
 
+// y[i] = ws[0][i] + ws[1][i] + ... + ws[splits - 1][i], always in that order (slices n apart): the
+// second half of a deterministic split-K GEMM.
+extern "C" __global__ void astral_sum_splits_f32(const float* __restrict__ ws, float* __restrict__ y, u64 n, unsigned splits) { PDL_WAIT();
+    for (u64 i = (u64)blockIdx.x * blockDim.x + threadIdx.x; i < n; i += (u64)gridDim.x * blockDim.x) {
+        float s = 0.0f;
+        for (unsigned z = 0; z < splits; ++z) s += ws[(u64)z * n + i];
+        y[i] = s;
+    }
+}
+
 #define GEMM_MMA3_ENTRY(NAME, WT)                                                                                   \
     extern "C" __global__ void __launch_bounds__(128) NAME(                                                         \
         const u8* __restrict__ qs, const u8* __restrict__ aux, const __half* __restrict__ xh,                       \
         float* __restrict__ y, unsigned N, unsigned K, u64 mat_qs, u64 mat_aux, const unsigned* __restrict__ items, \
         const unsigned* __restrict__ xidx, const unsigned* __restrict__ yidx, unsigned idx_len, unsigned x_rows,     \
-        unsigned y_rows, const float* __restrict__ mat_scale, unsigned n_mats, unsigned kt_per_split) { PDL_WAIT();             \
+        unsigned y_rows, const float* __restrict__ mat_scale, unsigned n_mats, unsigned kt_per_split, unsigned partial) { PDL_WAIT(); \
         gemm_mma3<WT>(qs, aux, xh, y, N, K, mat_qs, mat_aux, items, xidx, yidx, idx_len, x_rows, y_rows, mat_scale, \
-                      n_mats, kt_per_split);                                                                        \
+                      n_mats, kt_per_split, partial);                                                                        \
     }
 GEMM_MMA3_ENTRY(astral_gemm_q8_0_mma3, 2)
 GEMM_MMA3_ENTRY(astral_gemm_nvfp4_mma3, 3)

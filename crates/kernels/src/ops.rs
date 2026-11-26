@@ -400,6 +400,9 @@ pub struct Gemv {
     wgmma: Function,
     wgmma2: Function,
     zero: Function,
+    sum_splits: Function,
+    /// Workspace for deterministic split-K in [`Gemv::launch_mma`] ([`Gemv::reserve_split_workspace`]).
+    split_ws: Option<astral_gpu::DeviceBuffer<f32>>,
 }
 
 /// Tokens per work item of [`Gemv::launch_mma`] (`MMA_TOK` in gemv.cu).
@@ -589,7 +592,20 @@ impl Gemv {
                 fw
             },
             zero: f("astral_zero_f32")?,
+            sum_splits: f("astral_sum_splits_f32")?,
+            split_ws: None,
         })
+    }
+
+    /// Reserves `floats` of device memory for deterministic split-K in [`Gemv::launch_mma`]. With it,
+    /// each K split stores its own partial sums and a second kernel adds them in a fixed order, so
+    /// prefill results are bit-reproducible run to run; without it the splits add into `y`
+    /// atomically, whose rounding depends on the order the blocks finish. When a launch needs more
+    /// than the workspace holds it uses fewer splits (a choice that depends only on the shape).
+    /// Launches that use the workspace must not run concurrently on different streams.
+    pub fn reserve_split_workspace(&mut self, ctx: &std::sync::Arc<astral_gpu::Context>, floats: usize) -> Result<()> {
+        self.split_ws = Some(astral_gpu::DeviceBuffer::zeroed(ctx, floats)?);
+        Ok(())
     }
 
     /// Quantise `slots` vectors of `out.k` values (row `s` at `x[s * x_stride]`) into `out`.
@@ -700,11 +716,23 @@ impl Gemv {
             // prompts); partial sums are added atomically into a zeroed y.
             let kt = m.k / 64;
             let blocks = (m.n / 64) * n_items;
-            let splits = if blocks >= 256 || std::env::var_os("ASTRAL_NO_SPLITK").is_some() { 1 } else { 256u32.div_ceil(blocks).min(kt).min(8) };
+            let mut splits = if blocks >= 256 || std::env::var_os("ASTRAL_NO_SPLITK").is_some() { 1 } else { 256u32.div_ceil(blocks).min(kt).min(8) };
+            let y_len = y_rows as u64 * m.n as u64;
+            if let Some(w) = self.split_ws.as_ref() {
+                splits = splits.min((w.len() as u64 / y_len).clamp(1, 8) as u32);
+            }
             let mut ktps = kt.div_ceil(splits);
             let splits = kt.div_ceil(ktps);
+            // With a workspace the splits store partial sums there (deterministic); else they add
+            // atomically into a zeroed y.
+            let ws = self.split_ws.as_ref().filter(|_| splits > 1);
+            let mut partial = ws.is_some() as u32;
+            let mut py = ws.map_or(py, |w| w.device_ptr());
             if splits > 1 {
-                let (mut pz, mut nz) = (y.dptr(), (y_rows as u64) * m.n as u64);
+                let (mut pz, mut nz) = (py, splits as u64 * y_len);
+                if ws.is_none() {
+                    nz = y_len;
+                }
                 let mut zp = [param(&mut pz), param(&mut nz)];
                 let zc = LaunchConfig { grid: ((nz as u32).div_ceil(256).min(4096), 1, 1), block: (256, 1, 1), shared_mem_bytes: 0 };
                 // SAFETY: y holds at least y_rows * n floats (checked above).
@@ -728,12 +756,22 @@ impl Gemv {
                 param(&mut psc),
                 param(&mut nm),
                 param(&mut ktps),
+                param(&mut partial),
             ];
             let cfg = LaunchConfig { grid: (m.n / 64, n_items, splits), block: (128, 1, 1), shared_mem_bytes: 0 };
             // SAFETY: params match GEMM_MMA3_ENTRY in gemv.cu; planes validated at upload, the
             // f16 plane holds max_slots >= x_rows rows of k, the work lists cover n_items /
             // idx_len, y covers y_rows, the kernel clamps every index; n, k % 64 checked above.
-            return unsafe { self.mma3[fi].launch(cfg, stream, &mut params) };
+            unsafe { self.mma3[fi].launch(cfg, stream, &mut params) }?;
+            if let Some(w) = ws {
+                let (mut pw, mut po, mut nn, mut ns) = (w.device_ptr(), y.dptr(), y_len, splits);
+                let mut sp = [param(&mut pw), param(&mut po), param(&mut nn), param(&mut ns)];
+                let sc = LaunchConfig { grid: ((y_len as u32).div_ceil(256).min(4096), 1, 1), block: (256, 1, 1), shared_mem_bytes: 0 };
+                // SAFETY: matches astral_sum_splits_f32; the workspace holds splits * y_len floats
+                // (splits capped by its length above) and y holds y_len (checked).
+                unsafe { self.sum_splits.launch(sc, stream, &mut sp) }?;
+            }
+            return Ok(());
         }
         let mut psc = m.mat_scale.as_ref().map_or(0, |b| b.device_ptr());
         let mut nm = m.n_mats;
