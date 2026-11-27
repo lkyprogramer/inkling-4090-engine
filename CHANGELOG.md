@@ -9,6 +9,7 @@ Changes in this fork on top of upstream `49a0a2b`.
 ### Added
 
 - DSpark draft K/V: the two sliding-window draft layers keep a ring of `max(window + block, tmax)` rows instead of every position (bit-identical drafts; `ASTRAL_DRAFT_KV_FULL=1` keeps full rows), and `ASTRAL_DRAFT_KV_F16=1` stores the draft K/V in FP16. On an RTX 4090 the largest DSpark context goes from 73,728 to 106,496 tokens (114,688 with FP16).
+- `ASTRAL_DUMP_FIRST=<k>` for `dump-logits`: score positions k..n_ctx-2 instead of the second half of each chunk (dense long-document diagnosis).
 - `ASTRAL_SPEC_LOG=<file>`: one JSON line per DSpark round (position, drafts verified, accepted, wall time).
 - Contexts up to 132,096 tokens (128K + 1,024) for Inkling 2 Mini. Sliding-window slots keep a ring of `n_swa + max(tmax, 8)` rows (rounded up to 64) instead of the full capacity, the attention kernels take the row count, and the 8,192 limits are gone except for the simple decode kernel. `ASTRAL_NO_SWA_RING=1` keeps full-length rows for comparison. On an RTX 4090: bit-identical to the previous build within 8K, 128K prompt in 31.8 s and decode at 73.7 tok/s; see [docs/hardware/rtx4090.md](docs/hardware/rtx4090.md#long-context).
 - `ASTRAL_TRACE_PREFILL=1` for `astral trace` (prefill all but the last token, then the probed step) and `ASTRAL_DUMP_KINDS` for `dump-final-logits`.

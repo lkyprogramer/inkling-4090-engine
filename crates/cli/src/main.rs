@@ -300,7 +300,12 @@ fn cmd_dump_logits(path: &str, base: &str, out: &str) -> Result<bool> {
     f.read_exact(&mut tb).map_err(|e| bad(format!("{base}: tokens: {e}")))?;
     let tokens: Vec<u32> = tb.chunks_exact(4).map(|c| u32::from_le_bytes(c.try_into().unwrap())).collect();
     let mut s = load_session(path, n_ctx as u32 + 1)?;
-    let first = n_ctx / 2;
+    // ASTRAL_DUMP_FIRST=k scores positions k..n_ctx-2 instead of the second half (dense
+    // long-document diagnosis, T25); the record count then tells readers the first position.
+    let first = match std::env::var("ASTRAL_DUMP_FIRST") {
+        Ok(v) => v.parse::<usize>().ok().filter(|&k| k >= 1 && k < n_ctx - 1).ok_or_else(|| bad(format!("ASTRAL_DUMP_FIRST={v}: need 1..{}", n_ctx - 1)))?,
+        Err(_) => n_ctx / 2,
+    };
     let nv = 2 * n_vocab.div_ceil(2) + 4;
     let mut w = std::io::BufWriter::new(std::fs::File::create(out).map_err(|e| bad(format!("{out}: {e}")))?);
     let io = |e: std::io::Error| bad(format!("{out}: {e}"));
