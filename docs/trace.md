@@ -26,7 +26,8 @@ and coda-lens readouts (only the raw lens below).
 
 Environment: `ASTRAL_TRACE_VALIDATE=all` recomputes the attention output (reads the V cache) at
 every probed position (default: the first one of each sequence); `ASTRAL_TRACE_LENS=0` skips the
-raw lens; `ASTRAL_TRACE_FLOATS` sizes the staging buffer (default 24 Mi floats, 96 MB).
+raw lens; `ASTRAL_TRACE_PREFILL=1` prefills each sequence up to its first probed step
+(so the probed attention reads KV written by the prefill path); `ASTRAL_TRACE_FLOATS` sizes the staging buffer (default 24 Mi floats, 96 MB).
 
 ## Records
 

@@ -11,7 +11,8 @@ use astral_gpu::{param, Dev, DevMut, DevicePtr, Function, LaunchConfig, Stream};
 
 /// Maximum attention-residual states mixed in one call (`MAX_DEPTH` in inkling.cu).
 pub const MAX_DEPTH: usize = 8;
-/// Maximum context the decode attention kernel handles (`MAX_CTX` in inkling.cu).
+/// Longest attended span of the simple decode attention kernel (`MAX_CTX` in inkling.cu); the
+/// split and prefill kernels have no such limit.
 pub const MAX_CTX: u32 = 8192;
 /// Positions per split of the split-K attention (`ATT_CHUNK` in inkling.cu).
 pub const ATT_CHUNK: u32 = 64;
@@ -133,6 +134,8 @@ pub struct AttnPrep<'a> {
     pub log_floor: f32,
     pub log_alpha: f32,
     pub capacity: u32,
+    /// Physical cache rows (see [`AttnShape::rows`]).
+    pub rows: u32,
 }
 
 /// Attention geometry of one layer.
@@ -146,8 +149,20 @@ pub struct AttnShape {
     pub extent: u32,
     /// Sliding window (0 = full attention).
     pub window: u32,
-    /// KV cache capacity in positions.
+    /// KV cache capacity in positions (positions are clamped to it).
     pub capacity: u32,
+    /// Physical cache rows: position j lives in row `j % rows`. `capacity` for full attention;
+    /// a sliding-window layer may keep a ring of at least `window` + the longest pass rows.
+    pub rows: u32,
+}
+
+impl AttnShape {
+    fn check_rows(&self) -> Result<()> {
+        if self.rows == 0 || self.rows > self.capacity || (self.rows < self.capacity && (self.window == 0 || self.rows < self.window)) {
+            return Err(invalid(format!("attn: {} cache rows for capacity {} and window {}", self.rows, self.capacity, self.window)));
+        }
+        Ok(())
+    }
 }
 
 impl InklingOps {
@@ -391,7 +406,8 @@ impl InklingOps {
         need("kv v cache", vc.dlen(), (width * capacity) as usize)?;
         need("kv pos", pos.dlen(), 1)?;
         let (mut a, mut b, mut c, mut d, mut e, mut w, mut cap) = (k.dptr(), v.dptr(), kc.dptr(), vc.dptr(), pos.dptr(), width, capacity.max(1));
-        let mut p = [param(&mut a), param(&mut b), param(&mut c), param(&mut d), param(&mut e), param(&mut w), param(&mut cap)];
+        let mut rows = cap;
+        let mut p = [param(&mut a), param(&mut b), param(&mut c), param(&mut d), param(&mut e), param(&mut w), param(&mut cap), param(&mut rows)];
         Self::go(&self.kv_append, s, LaunchConfig { grid: (1, 1, 1), block: (256, 1, 1), shared_mem_bytes: 0 }, &mut p)
     }
 
@@ -410,15 +426,17 @@ impl InklingOps {
         pos: &impl Dev<i32>,
         a: AttnShape,
     ) -> Result<()> {
-        if a.kv_heads == 0 || !a.heads.is_multiple_of(a.kv_heads) || a.n_rel > 64 || a.capacity == 0 || a.capacity > MAX_CTX {
-            return Err(invalid(format!("attn: unsupported shape {a:?} (n_rel <= 64, capacity <= {MAX_CTX})")));
+        let span = if a.window == 0 { a.capacity } else { a.window.min(a.capacity) };
+        if a.kv_heads == 0 || !a.heads.is_multiple_of(a.kv_heads) || a.n_rel > 64 || a.capacity == 0 || span > MAX_CTX {
+            return Err(invalid(format!("attn: unsupported shape {a:?} (n_rel <= 64, attended span <= {MAX_CTX})")));
         }
+        a.check_rows()?;
         let width = (a.kv_heads * a.head_dim) as usize;
         need("attn q", q.dlen(), (a.heads * a.head_dim) as usize)?;
         need("attn r", r.dlen(), (a.heads * a.n_rel) as usize)?;
         need("attn sink", sink.dlen(), a.heads as usize)?;
-        need("attn k cache", kc.dlen(), width * a.capacity as usize)?;
-        need("attn v cache", vc.dlen(), width * a.capacity as usize)?;
+        need("attn k cache", kc.dlen(), width * a.rows as usize)?;
+        need("attn v cache", vc.dlen(), width * a.rows as usize)?;
         need("attn rel bias", rel_bias.dlen(), (a.extent * a.n_rel) as usize)?;
         need("attn out", out.dlen(), (a.heads * a.head_dim) as usize)?;
         need("attn pos", pos.dlen(), 1)?;
@@ -426,7 +444,7 @@ impl InklingOps {
             (q.dptr(), r.dptr(), sink.dptr(), kc.dptr(), vc.dptr(), rel_bias.dptr(), out.dptr(), pos.dptr());
         let (mut h, mut kh, mut hd, mut nr, mut ex, mut win) = (a.heads, a.kv_heads, a.head_dim, a.n_rel, a.extent, a.window);
         let mut scale = 1.0f32 / (a.head_dim as f32).sqrt();
-        let mut cap = a.capacity;
+        let (mut cap, mut rows) = (a.capacity, a.rows);
         let mut p = [
             param(&mut pq),
             param(&mut pr),
@@ -444,6 +462,7 @@ impl InklingOps {
             param(&mut win),
             param(&mut scale),
             param(&mut cap),
+            param(&mut rows),
         ];
         Self::go(&self.attn, s, LaunchConfig { grid: (a.heads, 1, 1), block: (128, 1, 1), shared_mem_bytes: 0 }, &mut p)
     }
@@ -593,7 +612,7 @@ impl InklingOps {
     pub fn attn_prep(&self, s: &Stream, a: AttnPrep) -> Result<()> {
         let (h, kh, hd, nr, nt) = (a.heads as usize, a.kv_heads as usize, a.head_dim as usize, a.n_rel as usize, a.ntok as usize);
         let width = kh * hd;
-        if hd > 256 || nr > 256 || kh == 0 || a.capacity == 0 || nt == 0 || (a.kdyn.is_some() != a.vdyn.is_some()) || (a.kdyn.is_some() && (!a.conv || nt != 1)) {
+        if hd > 256 || nr > 256 || kh == 0 || a.capacity == 0 || a.rows == 0 || a.rows > a.capacity || nt == 0 || (a.kdyn.is_some() != a.vdyn.is_some()) || (a.kdyn.is_some() && (!a.conv || nt != 1)) {
             return Err(invalid(format!("attn_prep: unsupported shape hd {hd} n_rel {nr} kv_heads {kh} tokens {nt}")));
         }
         need("prep q", a.q.dlen(), nt * h * hd)?;
@@ -611,8 +630,8 @@ impl InklingOps {
             }
             need("prep taps", t.dlen(), 4 * a.dyn_heads as usize)?;
         }
-        need("prep k cache", a.kc.dlen(), width * a.capacity as usize)?;
-        need("prep v cache", a.vc.dlen(), width * a.capacity as usize)?;
+        need("prep k cache", a.kc.dlen(), width * a.rows as usize)?;
+        need("prep v cache", a.vc.dlen(), width * a.rows as usize)?;
         need("prep pos", a.pos.dlen(), 1)?;
         let (mut pq, mut pr, mut pk, mut pv) = (a.q.dptr(), a.r.dptr(), a.k.dptr(), a.v.dptr());
         let (mut qs, mut rs, mut cs, mut kw, mut vw) = (a.q_scale.dptr(), a.r_scale.dptr(), a.conv_kv.dptr(), a.k_conv.dptr(), a.v_conv.dptr());
@@ -620,7 +639,7 @@ impl InklingOps {
         let (mut kc, mut vc, mut pp) = (a.kc.dptr(), a.vc.dptr(), a.pos.dptr());
         let (mut hh, mut khh, mut hdd, mut nrr) = (a.heads, a.kv_heads, a.head_dim, a.n_rel);
         let (mut tq, mut tr, mut ep, mut gl, mut fl, mut al, mut cap) = (a.thr_qk, a.thr_rel, a.eps, a.global as u32, a.log_floor, a.log_alpha, a.capacity);
-        let mut dc = a.conv as u32;
+        let (mut dc, mut rows) = (a.conv as u32, a.rows);
         let mut p = [
             param(&mut pq),
             param(&mut pr),
@@ -649,6 +668,7 @@ impl InklingOps {
             param(&mut al),
             param(&mut cap),
             param(&mut dc),
+            param(&mut rows),
         ];
         let jobs = 2 * (a.heads + a.kv_heads);
         Self::go(&self.attn_prep, s, LaunchConfig { grid: (jobs, a.ntok, 1), block: (128, 1, 1), shared_mem_bytes: 0 }, &mut p)
@@ -914,21 +934,23 @@ impl InklingOps {
         chunk_loop: bool,
         gate: Option<(&dyn Dev<f32>, &mut QAct)>,
     ) -> Result<()> {
-        if a.head_dim != 128 || a.n_rel > 32 || a.kv_heads == 0 || !a.heads.is_multiple_of(a.kv_heads) || a.capacity == 0 || a.capacity > MAX_CTX || ntok == 0 || max_splits == 0 {
-            return Err(invalid(format!("attn split: unsupported shape {a:?} (head_dim 128, n_rel <= 32, capacity <= {MAX_CTX})")));
+        if a.head_dim != 128 || a.n_rel > 32 || a.kv_heads == 0 || !a.heads.is_multiple_of(a.kv_heads) || a.capacity == 0 || ntok == 0 || max_splits == 0 {
+            return Err(invalid(format!("attn split: unsupported shape {a:?} (head_dim 128, n_rel <= 32)")));
         }
+        a.check_rows()?;
         let (width, nt) = ((a.kv_heads * a.head_dim) as usize, ntok as usize);
         need("attn q", q.dlen(), nt * (a.heads * a.head_dim) as usize)?;
         need("attn r", r.dlen(), nt * (a.heads * a.n_rel) as usize)?;
         need("attn sink", sink.dlen(), nt * a.heads as usize)?;
-        need("attn k cache", kc.dlen(), width * a.capacity as usize)?;
-        need("attn v cache", vc.dlen(), width * a.capacity as usize)?;
+        need("attn k cache", kc.dlen(), width * a.rows as usize)?;
+        need("attn v cache", vc.dlen(), width * a.rows as usize)?;
         need("attn rel bias", rel_bias.dlen(), (a.extent * a.n_rel) as usize)?;
         need("attn work", work.dlen(), attn_workspace(ntok, a.heads, a.head_dim, max_splits))?;
         need("attn out", out.dlen(), nt * (a.heads * a.head_dim) as usize)?;
         need("attn pos", pos.dlen(), 1)?;
         let (mut pq, mut pr, mut ps, mut pk, mut pv, mut pb, mut pw, mut pp) = (q.dptr(), r.dptr(), sink.dptr(), kc.dptr(), vc.dptr(), rel_bias.dptr(), work.dptr(), pos.dptr());
         let (mut h, mut kh, mut nr, mut ex, mut win, mut cap, mut ms) = (a.heads, a.kv_heads, a.n_rel, a.extent, a.window, a.capacity, max_splits);
+        let mut rows = a.rows;
         let mut scale = 1.0f32 / (a.head_dim as f32).sqrt();
         let mut p = [
             param(&mut pq),
@@ -947,6 +969,7 @@ impl InklingOps {
             param(&mut scale),
             param(&mut cap),
             param(&mut ms),
+            param(&mut rows),
         ];
         // One chunk per split (decode, exact-size prefill splits) or splits looping over chunks
         // (graph-captured multi-token passes with a capped split count).
@@ -1231,20 +1254,22 @@ impl InklingOps {
         a: AttnShape,
         ntok: u32,
     ) -> Result<()> {
-        if a.head_dim != 128 || a.n_rel > 16 || !a.n_rel.is_multiple_of(4) || a.kv_heads == 0 || !a.heads.is_multiple_of(a.kv_heads) || a.capacity == 0 || a.capacity > MAX_CTX || ntok == 0 {
+        if a.head_dim != 128 || a.n_rel > 16 || !a.n_rel.is_multiple_of(4) || a.kv_heads == 0 || !a.heads.is_multiple_of(a.kv_heads) || a.capacity == 0 || ntok == 0 {
             return Err(invalid(format!("attn prefill: unsupported shape {a:?} (head_dim 128, n_rel <= 16 and % 4 == 0)")));
         }
         let (width, nt) = ((a.kv_heads * a.head_dim) as usize, ntok as usize);
         need("attn q", q.dlen(), nt * (a.heads * a.head_dim) as usize)?;
         need("attn r", r.dlen(), nt * (a.heads * a.n_rel) as usize)?;
         need("attn sink", sink.dlen(), nt * a.heads as usize)?;
-        need("attn k cache", kc.dlen(), width * a.capacity as usize)?;
-        need("attn v cache", vc.dlen(), width * a.capacity as usize)?;
+        need("attn k cache", kc.dlen(), width * a.rows as usize)?;
+        need("attn v cache", vc.dlen(), width * a.rows as usize)?;
         need("attn rel bias", rel_bias.dlen(), (a.extent * a.n_rel) as usize)?;
         need("attn out", out.dlen(), nt * (a.heads * a.head_dim) as usize)?;
         need("attn pos", pos.dlen(), 1)?;
         let (mut pq, mut pr, mut ps, mut pk, mut pv, mut pb, mut po, mut pp) = (q.dptr(), r.dptr(), sink.dptr(), kc.dptr(), vc.dptr(), rel_bias.dptr(), out.dptr(), pos.dptr());
+        a.check_rows()?;
         let (mut n, mut h, mut kh, mut nr, mut ex, mut win, mut cap) = (ntok, a.heads, a.kv_heads, a.n_rel, a.extent, a.window, a.capacity);
+        let mut rows = a.rows;
         let mut scale = 1.0f32 / (a.head_dim as f32).sqrt();
         let mut p = [
             param(&mut pq),
@@ -1263,6 +1288,7 @@ impl InklingOps {
             param(&mut win),
             param(&mut scale),
             param(&mut cap),
+            param(&mut rows),
         ];
         Self::go(&self.attn_prefill, s, LaunchConfig { grid: (ntok.div_ceil(64), a.heads, 1), block: (128, 1, 1), shared_mem_bytes: 0 }, &mut p)
     }

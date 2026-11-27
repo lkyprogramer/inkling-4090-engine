@@ -332,11 +332,17 @@ extern "C" __global__ void astral_ink_conv_step(float* __restrict__ x, float* __
 }
 
 // ---------------------------------------------------------------------------------------------
+// Physical KV-cache row of position j. Sliding-window layers keep a ring of `rows` positions
+// (rows >= window + the longest pass, so a pass never overwrites a row one of its own queries
+// still reads); full-attention layers have rows = capacity, where this is the identity.
+__device__ __forceinline__ u64 kv_row(unsigned j, unsigned rows) { return (u64)(j < rows ? j : j % rows); }
+
+// ---------------------------------------------------------------------------------------------
 // Append this token's K and V (f32, [kv_heads * hd]) to an f16 cache at position `pos`.
 extern "C" __global__ void astral_ink_kv_append(const float* __restrict__ k, const float* __restrict__ v,
                                                 __half* __restrict__ kc, __half* __restrict__ vc,
-                                                const int* __restrict__ pos, unsigned width, unsigned capacity) { PDL_WAIT();
-    const u64 base = (u64)min((unsigned)pos[0], capacity - 1u) * width;   // clamped to the cache
+                                                const int* __restrict__ pos, unsigned width, unsigned capacity, unsigned rows) { PDL_WAIT();
+    const u64 base = kv_row(min((unsigned)pos[0], capacity - 1u), rows) * width;   // clamped to the cache
     for (unsigned i = threadIdx.x; i < width; i += blockDim.x) {
         kc[base + i] = __float2half_rn(k[i]);
         vc[base + i] = __float2half_rn(v[i]);
@@ -351,18 +357,18 @@ extern "C" __global__ void astral_ink_kv_append(const float* __restrict__ k, con
 //   out_h      = sum_j softmax_j(logit, plus a sink logit of 0) * v_j
 // SWA layers pass window = n_swa (positions with pos - j >= window are masked); global layers
 // pass window = 0 (no window). GQA: kv head = h / (heads / kv_heads). One block per head; the
-// logits of up to MAX_CTX positions live in shared memory.
+// logits of up to MAX_CTX positions live in shared memory (the caller keeps the span within it).
 #define MAX_CTX 8192
 extern "C" __global__ void __launch_bounds__(128) astral_ink_attn_decode(
     const float* __restrict__ q, const float* __restrict__ r, const float* __restrict__ sink,
     const __half* __restrict__ kc, const __half* __restrict__ vc, const float* __restrict__ rel_bias,
     float* __restrict__ out, const int* __restrict__ pos_p, unsigned heads, unsigned kv_heads, unsigned hd,
-    unsigned n_rel, unsigned extent, unsigned window, float scale, unsigned capacity) { PDL_WAIT();
+    unsigned n_rel, unsigned extent, unsigned window, float scale, unsigned capacity, unsigned rows) { PDL_WAIT();
     __shared__ float logit[MAX_CTX];
     __shared__ float rs[64];
     const unsigned h = blockIdx.x;
     const unsigned kvh = h / (heads / kv_heads);
-    const unsigned pos = min((unsigned)pos_p[0], min(capacity, (unsigned)MAX_CTX) - 1u);   // clamped
+    const unsigned pos = min((unsigned)pos_p[0], capacity - 1u);   // clamped
     const unsigned lo = (window && pos + 1 > window) ? pos + 1 - window : 0u;
     const unsigned n = pos + 1 - lo;
     const float* qh = q + (u64)h * hd;
@@ -373,7 +379,7 @@ extern "C" __global__ void __launch_bounds__(128) astral_ink_attn_decode(
     float m = 0.0f;   // the sink logit is 0
     for (unsigned t = threadIdx.x; t < n; t += blockDim.x) {
         const unsigned j = lo + t;
-        const __half* kj = kc + (u64)j * width + (u64)kvh * hd;
+        const __half* kj = kc + kv_row(j, rows) * width + (u64)kvh * hd;
         float dot = 0.0f;
         for (unsigned d = 0; d < hd; ++d) dot = fmaf(qh[d], __half2float(kj[d]), dot);
         const unsigned dist = pos - j;
@@ -404,7 +410,7 @@ extern "C" __global__ void __launch_bounds__(128) astral_ink_attn_decode(
     const float inv = 1.0f / sum;
     for (unsigned d = threadIdx.x; d < hd; d += blockDim.x) {
         float acc = 0.0f;
-        for (unsigned t = 0; t < n; ++t) acc = fmaf(logit[t], __half2float(vc[(u64)(lo + t) * width + (u64)kvh * hd + d]), acc);
+        for (unsigned t = 0; t < n; ++t) acc = fmaf(logit[t], __half2float(vc[kv_row(lo + t, rows) * width + (u64)kvh * hd + d]), acc);
         out[(u64)h * hd + d] = acc * inv;
     }
 }
@@ -619,7 +625,7 @@ extern "C" __global__ void __launch_bounds__(128) astral_ink_attn_prep(
     const float* __restrict__ kdyn, const float* __restrict__ vdyn, unsigned dyn_heads,
     __half* __restrict__ kc, __half* __restrict__ vc, const int* __restrict__ pos_p,
     unsigned heads, unsigned kv_heads, unsigned hd, unsigned n_rel, float thr_qk, float thr_rel, float eps,
-    unsigned global, float floor_len, float alpha, unsigned capacity, unsigned do_conv) { PDL_WAIT();
+    unsigned global, float floor_len, float alpha, unsigned capacity, unsigned do_conv, unsigned rows) { PDL_WAIT();
     // blockIdx.y = token t at position pos_p[0] + t; buffers are token-major. With do_conv = 0
     // the K/V convs were already applied (astral_ink_conv_seq, prefill) and are skipped.
     const unsigned job = blockIdx.x, t = threadIdx.x, tok = blockIdx.y;
@@ -680,7 +686,7 @@ extern "C" __global__ void __launch_bounds__(128) astral_ink_attn_prep(
     }
     ss = block_sum(ss);
     const float f = is_v ? rsqrtf(ss / (float)hd + eps) : fminf(fmaxf(thr_qk / (sqrtf(ss) + 1e-6f), 0.0f), 1.0f);
-    const u64 base = (u64)min((unsigned)posi, capacity - 1u) * width;
+    const u64 base = kv_row(min((unsigned)posi, capacity - 1u), rows) * width;
     __half* cache = is_v ? vc : kc;
     for (unsigned i = t, j = 0; i < hd && j < 2; i += blockDim.x, ++j) {
         const unsigned c = h * hd + i;
@@ -940,7 +946,7 @@ extern "C" __global__ void __launch_bounds__(128) astral_ink_attn_split(
     const float* __restrict__ q, const float* __restrict__ r, const float* __restrict__ sink,
     const __half* __restrict__ kc, const __half* __restrict__ vc, const float* __restrict__ rel_bias,
     float* __restrict__ part, const int* __restrict__ pos_p, unsigned heads, unsigned kv_heads, unsigned n_rel,
-    unsigned extent, unsigned window, float scale, unsigned capacity, unsigned max_splits) { PDL_WAIT();
+    unsigned extent, unsigned window, float scale, unsigned capacity, unsigned max_splits, unsigned rows) { PDL_WAIT();
     // blockIdx.z = query token at position pos_p[0] + z (causal: it sees positions <= its own).
     constexpr unsigned HD = 128;
     const unsigned h = blockIdx.x, sp = blockIdx.y, z = blockIdx.z;
@@ -949,7 +955,7 @@ extern "C" __global__ void __launch_bounds__(128) astral_ink_attn_split(
     sink += (u64)z * heads;
     part += (u64)z * heads * max_splits * (HD + 2);
     const unsigned kvh = h / (heads / kv_heads);
-    const unsigned pos = min((unsigned)pos_p[0] + z, min(capacity, (unsigned)MAX_CTX) - 1u);
+    const unsigned pos = min((unsigned)pos_p[0] + z, capacity - 1u);
     const unsigned lo = (window && pos + 1 > window) ? pos + 1 - window : 0u;
     // Split sp takes chunks sp, sp + gridDim.y, ... (a fixed split count serves any context).
     if (lo + sp * ATT_CHUNK > pos) return;
@@ -972,8 +978,9 @@ extern "C" __global__ void __launch_bounds__(128) astral_ink_attn_split(
             const unsigned j = j0 + 4u * u;
             const bool ok = j < end;
             const unsigned jj = ok ? j : j0;
-            const uint2 kr = reinterpret_cast<const uint2*>(kc + (u64)jj * width + (u64)kvh * HD)[lane];
-            vr[u] = reinterpret_cast<const uint2*>(vc + (u64)jj * width + (u64)kvh * HD)[lane];
+            const u64 row = kv_row(jj, rows) * width + (u64)kvh * HD;
+            const uint2 kr = reinterpret_cast<const uint2*>(kc + row)[lane];
+            vr[u] = reinterpret_cast<const uint2*>(vc + row)[lane];
             const float2 k01 = __half22float2(*reinterpret_cast<const __half2*>(&kr.x));
             const float2 k23 = __half22float2(*reinterpret_cast<const __half2*>(&kr.y));
             float tt = scale * (qv.x * k01.x + qv.y * k01.y + qv.z * k23.x + qv.w * k23.y);
@@ -1029,7 +1036,7 @@ extern "C" __global__ void __launch_bounds__(128) astral_ink_attn_split1(
     const float* __restrict__ q, const float* __restrict__ r, const float* __restrict__ sink,
     const __half* __restrict__ kc, const __half* __restrict__ vc, const float* __restrict__ rel_bias,
     float* __restrict__ part, const int* __restrict__ pos_p, unsigned heads, unsigned kv_heads, unsigned n_rel,
-    unsigned extent, unsigned window, float scale, unsigned capacity, unsigned max_splits) { PDL_WAIT();
+    unsigned extent, unsigned window, float scale, unsigned capacity, unsigned max_splits, unsigned rows) { PDL_WAIT();
     // blockIdx.z = query token at position pos_p[0] + z (causal: it sees positions <= its own).
     constexpr unsigned HD = 128;
     const unsigned h = blockIdx.x, sp = blockIdx.y, z = blockIdx.z;
@@ -1038,7 +1045,7 @@ extern "C" __global__ void __launch_bounds__(128) astral_ink_attn_split1(
     sink += (u64)z * heads;
     part += (u64)z * heads * max_splits * (HD + 2);
     const unsigned kvh = h / (heads / kv_heads);
-    const unsigned pos = min((unsigned)pos_p[0] + z, min(capacity, (unsigned)MAX_CTX) - 1u);
+    const unsigned pos = min((unsigned)pos_p[0] + z, capacity - 1u);
     const unsigned lo = (window && pos + 1 > window) ? pos + 1 - window : 0u;
     // One 64-position chunk per split: the caller launches enough splits for the whole range
     // (decode at full capacity, exact-size prefill). Faster per call than the looping form.
@@ -1063,8 +1070,9 @@ extern "C" __global__ void __launch_bounds__(128) astral_ink_attn_split1(
             const unsigned j = j0 + 4u * u;
             const bool ok = j < end;
             const unsigned jj = ok ? j : j0;
-            const uint2 kr = reinterpret_cast<const uint2*>(kc + (u64)jj * width + (u64)kvh * HD)[lane];
-            vr[u] = reinterpret_cast<const uint2*>(vc + (u64)jj * width + (u64)kvh * HD)[lane];
+            const u64 row = kv_row(jj, rows) * width + (u64)kvh * HD;
+            const uint2 kr = reinterpret_cast<const uint2*>(kc + row)[lane];
+            vr[u] = reinterpret_cast<const uint2*>(vc + row)[lane];
             const float2 k01 = __half22float2(*reinterpret_cast<const __half2*>(&kr.x));
             const float2 k23 = __half22float2(*reinterpret_cast<const __half2*>(&kr.y));
             float tt = scale * (qv.x * k01.x + qv.y * k01.y + qv.z * k23.x + qv.w * k23.y);
@@ -1122,7 +1130,7 @@ extern "C" __global__ void __launch_bounds__(128) astral_ink_attn_merge(const fl
     // blockIdx.x = head, blockIdx.y = query token.
     constexpr unsigned HD = 128;
     const unsigned h = blockIdx.x, z = blockIdx.y, d = threadIdx.x, heads = gridDim.x;
-    const unsigned pos = min((unsigned)pos_p[0] + z, min(capacity, (unsigned)MAX_CTX) - 1u);
+    const unsigned pos = min((unsigned)pos_p[0] + z, capacity - 1u);
     const unsigned lo = (window && pos + 1 > window) ? pos + 1 - window : 0u;
     const unsigned n_splits = min((pos + 1 - lo + ATT_CHUNK - 1) / ATT_CHUNK, max_splits);
     const float* p = part + ((u64)z * heads + h) * max_splits * (HD + 2);
@@ -1147,7 +1155,7 @@ extern "C" __global__ void __launch_bounds__(128) astral_ink_attn_merge_q8(const
                                                                            float* __restrict__ xd, __half* __restrict__ xh) { PDL_WAIT();
     constexpr unsigned HD = 128;
     const unsigned h = blockIdx.x, z = blockIdx.y, d = threadIdx.x, heads = gridDim.x;
-    const unsigned pos = min((unsigned)pos_p[0] + z, min(capacity, (unsigned)MAX_CTX) - 1u);
+    const unsigned pos = min((unsigned)pos_p[0] + z, capacity - 1u);
     const unsigned lo = (window && pos + 1 > window) ? pos + 1 - window : 0u;
     const unsigned n_splits = min((pos + 1 - lo + ATT_CHUNK - 1) / ATT_CHUNK, max_splits);
     const float* p = part + ((u64)z * heads + h) * max_splits * (HD + 2);
@@ -1447,14 +1455,14 @@ extern "C" __global__ void __launch_bounds__(128) astral_ink_attn_prefill(
     const float* __restrict__ q, const float* __restrict__ r, const float* __restrict__ sink,
     const __half* __restrict__ kc, const __half* __restrict__ vc, const float* __restrict__ rel_bias,
     float* __restrict__ out, const int* __restrict__ pos_p, unsigned ntok, unsigned heads, unsigned kv_heads,
-    unsigned n_rel, unsigned extent, unsigned window, float scale, unsigned capacity) { PDL_WAIT();
+    unsigned n_rel, unsigned extent, unsigned window, float scale, unsigned capacity, unsigned rows) { PDL_WAIT();
     constexpr unsigned HD = 128;
     __shared__ __align__(16) __half Ks[FA_K * FA_ROW];
     __shared__ __align__(16) __half Vs[FA_K * FA_ROW];
     const unsigned h = blockIdx.y, qt = blockIdx.x;
     const unsigned tid = threadIdx.x, warp = tid >> 5, lane = tid & 31u, g = lane >> 2, t = lane & 3u;
     const unsigned kvh = h / (heads / kv_heads), width = kv_heads * HD;
-    const unsigned cap = min(capacity, (unsigned)MAX_CTX);
+    const unsigned cap = capacity;
     const unsigned pos0 = (unsigned)pos_p[0];
     // This lane's two query rows (token indices), clamped for loads; `ok` marks real rows.
     const unsigned ta = qt * FA_Q + warp * 16u + g, tb = ta + 8u;
@@ -1496,8 +1504,9 @@ extern "C" __global__ void __launch_bounds__(128) astral_ink_attn_prefill(
         for (unsigned c = tid; c < FA_K * 16u; c += blockDim.x) {
             const unsigned row = c >> 4, part = c & 15u;
             const unsigned kp = min(kb + row, last);
-            cp_async16(Ks + row * FA_ROW + part * 8u, kc + (u64)kp * width + (u64)kvh * HD + part * 8u);
-            cp_async16(Vs + row * FA_ROW + part * 8u, vc + (u64)kp * width + (u64)kvh * HD + part * 8u);
+            const u64 src = kv_row(kp, rows) * width + (u64)kvh * HD + part * 8u;
+            cp_async16(Ks + row * FA_ROW + part * 8u, kc + src);
+            cp_async16(Vs + row * FA_ROW + part * 8u, vc + src);
         }
         cp_async_commit();
         cp_async_wait<0>();

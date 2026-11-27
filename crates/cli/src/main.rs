@@ -408,7 +408,7 @@ fn cmd_generate(path: &str, n: &str, ids: &[String]) -> Result<bool> {
         return Err(astral_core::AstralError::Invalid("no token ids".into()));
     }
     let warm_len: usize = std::env::var("ASTRAL_WARM_PREFILL").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
-    let cap = std::env::var("ASTRAL_CTX").ok().and_then(|v| v.parse().ok()).unwrap_or((prompt.len() + n + 1).max(warm_len).min(8192) as u32);
+    let cap = std::env::var("ASTRAL_CTX").ok().and_then(|v| v.parse().ok()).unwrap_or((prompt.len() + n + 1).max(warm_len).min(astral_model::inkling::MAX_CONTEXT as usize) as u32);
     let mut s = load_session(path, cap)?;
     if let Ok(w) = std::env::var("ASTRAL_TOUCH") {
         s.touch(&w)?;
@@ -493,20 +493,32 @@ fn cmd_dump_final_logits(path: &str, manifest: &str, out: &str) -> Result<bool> 
         Ok(())
     };
     let mut s = load_session(path, (cap + 8) as u32)?;
+    // ASTRAL_DUMP_KINDS (default "step,prefill,decode") selects the paths, e.g. "prefill,decode"
+    // at lengths where stepping from the first token takes too long.
+    let kinds = std::env::var("ASTRAL_DUMP_KINDS").unwrap_or_else(|_| "step,prefill,decode".into());
+    let want = |k: &str| kinds.split(',').any(|x| x.trim() == k);
     for (name, lens, ids) in &jobs {
-        s.reset()?;
-        let mut next = 0;
-        for (i, &t) in ids[..lens[lens.len() - 1]].iter().enumerate() {
-            s.step(t)?;
-            if lens.get(next) == Some(&(i + 1)) {
-                save(name, i + 1, "step", &s.logits()?)?;
-                next += 1;
+        if want("step") {
+            s.reset()?;
+            let mut next = 0;
+            for (i, &t) in ids[..lens[lens.len() - 1]].iter().enumerate() {
+                s.step(t)?;
+                if lens.get(next) == Some(&(i + 1)) {
+                    save(name, i + 1, "step", &s.logits()?)?;
+                    next += 1;
+                }
             }
         }
-        for &len in lens {
-            s.reset()?;
-            s.prefill(&ids[..len])?;
-            save(name, len, "prefill", &s.logits()?)?;
+        if want("prefill") {
+            for &len in lens {
+                s.reset()?;
+                s.prefill(&ids[..len])?;
+                save(name, len, "prefill", &s.logits()?)?;
+            }
+        }
+        if !want("decode") {
+            println!("{name}: {} lengths up to {}", lens.len(), lens[lens.len() - 1]);
+            continue;
         }
         // The serving path: prefill the first length (the prompt), then one decode step per token.
         s.reset()?;
@@ -653,10 +665,16 @@ fn cmd_trace(path: &str, manifest: &str, out: &str) -> Result<bool> {
     let mut s = load_session(path, (cap + 8) as u32)?;
     let mut f = std::io::BufWriter::new(std::fs::File::create(format!("{out}/trace.jsonl"))?);
     let t0 = std::time::Instant::now();
+    // ASTRAL_TRACE_PREFILL=1: prefill up to the first probed step instead of stepping there.
+    let prefill = std::env::var_os("ASTRAL_TRACE_PREFILL").is_some();
     for (name, lens, ids) in &jobs {
         s.reset()?;
         let mut next = 0;
-        for (i, &t) in ids[..lens[lens.len() - 1]].iter().enumerate() {
+        let skip = if prefill { lens[0] - 1 } else { 0 };
+        if skip > 0 {
+            s.prefill(&ids[..skip])?;
+        }
+        for (i, &t) in ids[..lens[lens.len() - 1]].iter().enumerate().skip(skip) {
             let probe = lens.get(next) == Some(&(i + 1));
             if probe {
                 s.arm_probe()?;
@@ -736,7 +754,7 @@ fn cmd_spec_generate(path: &str, dir: &str, k: &str, n: &str, ids: &[String]) ->
     let k: usize = k.parse().map_err(|_| bad("k must be a number"))?;
     let n: usize = n.parse().map_err(|_| bad("n must be a number"))?;
     let prompt = read_ids(ids)?;
-    let cap = std::env::var("ASTRAL_CTX").ok().and_then(|v| v.parse().ok()).unwrap_or((prompt.len() + n + 64).min(8192) as u32);
+    let cap = std::env::var("ASTRAL_CTX").ok().and_then(|v| v.parse().ok()).unwrap_or((prompt.len() + n + 64).min(astral_model::inkling::MAX_CONTEXT as usize) as u32);
     let mut s = load_session(path, cap)?;
     let t = std::time::Instant::now();
     s.enable_spec(std::path::Path::new(dir), k)?;

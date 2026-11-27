@@ -137,6 +137,28 @@ impl Config {
         self.kv_heads * self.head_dim
     }
 
+    /// Physical layer of cache slot `slot` (slots past `n_layer` are the later core passes).
+    pub fn slot_layer(&self, slot: usize) -> usize {
+        if slot < self.n_layer {
+            slot
+        } else {
+            self.core_start + (slot - self.n_layer) % (self.core_end - self.core_start)
+        }
+    }
+
+    /// KV-cache rows of `slot` for `capacity` positions and passes of up to `tmax` tokens.
+    /// Sliding-window layers keep a ring of window + max(tmax, QITEM_ROWS) rows (rounded up
+    /// to 64): a pass writes all its keys before attending, so the ring must hold the earliest
+    /// query's window plus the whole pass. Rejected speculative rows only overwrite positions
+    /// no later query reads. `ASTRAL_NO_SWA_RING=1` keeps every position.
+    pub fn kv_rows(&self, slot: usize, capacity: u32, tmax: usize) -> u32 {
+        if !self.swa[self.slot_layer(slot)] || std::env::var_os("ASTRAL_NO_SWA_RING").is_some() {
+            return capacity;
+        }
+        let ring = (self.n_swa as usize + tmax.max(QITEM_ROWS)).next_multiple_of(64);
+        capacity.min(ring as u32)
+    }
+
     /// Attention-residual bank rows: one per block start over all visits, plus headroom.
     pub(crate) fn bank_rows(&self) -> usize {
         let b = self.attn_res_block.max(1);
@@ -454,7 +476,11 @@ impl DevWork {
     }
 }
 
-/// Rows of the attention-residual bank: prelude + 2 per pass + postlude, with headroom.
+/// Largest context a session accepts: 128 Ki positions (the longest validated on an RTX 4090)
+/// plus room for the reply. The KV of the 8 full-attention slots grows by 32 KiB per position;
+/// the sliding-window slots are rings.
+pub const MAX_CONTEXT: u32 = 128 * 1024 + 1024;
+
 /// Largest pass count `ASTRAL_PASSES` accepts.
 pub const MAX_PASSES: usize = 10;
 
@@ -535,8 +561,9 @@ pub struct Session {
 fn attn_work_len(c: &Config, capacity: u32, tmax: usize) -> usize {
     use astral_kernels::inkling::{attn_workspace, ATT_CHUNK};
     let (h, hd) = (c.heads as u32, c.head_dim as u32);
-    // Decode, and passes of up to QITEM_ROWS tokens (speculative verification), at full capacity.
-    let decode = attn_workspace(QITEM_ROWS.min(tmax) as u32, h, hd, capacity.div_ceil(ATT_CHUNK));
+    // Decode at full capacity (one chunk per split), and passes of up to QITEM_ROWS tokens
+    // (speculative verification) with a capped split count.
+    let decode = attn_workspace(1, h, hd, capacity.div_ceil(ATT_CHUNK)).max(attn_workspace(QITEM_ROWS.min(tmax) as u32, h, hd, capacity.div_ceil(ATT_CHUNK).min(graph_splits())));
     if split_prefill() {
         decode.max(attn_workspace(tmax.min(512) as u32, h, hd, 512u32.div_ceil(ATT_CHUNK)))
     } else {
@@ -546,8 +573,8 @@ fn attn_work_len(c: &Config, capacity: u32, tmax: usize) -> usize {
 
 impl Session {
     pub fn new(ctx: &Arc<Context>, w: Weights, capacity: u32) -> Result<Self> {
-        if capacity == 0 || capacity > astral_kernels::inkling::MAX_CTX {
-            return Err(bad(format!("capacity {capacity} outside 1..={}", astral_kernels::inkling::MAX_CTX)));
+        if capacity == 0 || capacity > MAX_CONTEXT {
+            return Err(bad(format!("capacity {capacity} outside 1..={MAX_CONTEXT}")));
         }
         let reg = KernelRegistry::load(ctx)?;
         let c = &w.cfg;
@@ -557,9 +584,10 @@ impl Session {
         let mut kc = Vec::with_capacity(slots);
         let mut vc = Vec::with_capacity(slots);
         let mut conv = Vec::with_capacity(slots);
-        for _ in 0..slots {
-            kc.push(DeviceBuffer::<u16>::zeroed(ctx, capacity as usize * kvw)?);
-            vc.push(DeviceBuffer::<u16>::zeroed(ctx, capacity as usize * kvw)?);
+        for slot in 0..slots {
+            let rows = c.kv_rows(slot, capacity, tmax) as usize;
+            kc.push(DeviceBuffer::<u16>::zeroed(ctx, rows * kvw)?);
+            vc.push(DeviceBuffer::<u16>::zeroed(ctx, rows * kvw)?);
             conv.push(z(3 * c.conv_channels())?);
         }
         let rank = w.loops.first().map_or(1, |l| l.down[0].n as usize);
@@ -1001,7 +1029,17 @@ impl Session {
         let native = self.logits()?;
         let kvw = self.w.cfg.kv_width();
         let (kc, vc) = (&self.kc, &self.vc);
-        let kv = |slot: usize, lo: usize, n: usize, is_v: bool| -> Result<Vec<u16>> { if is_v { &vc[slot] } else { &kc[slot] }.to_vec_range(lo * kvw, n * kvw) };
+        // Positions lo..lo+n of a slot, through its ring (sliding-window slots) if it has one.
+        let kv = |slot: usize, lo: usize, n: usize, is_v: bool| -> Result<Vec<u16>> {
+            let b = if is_v { &vc[slot] } else { &kc[slot] };
+            let rows = b.len() / kvw;
+            let (r0, first) = (lo % rows, n.min(rows - lo % rows));
+            let mut v = b.to_vec_range(r0 * kvw, first * kvw)?;
+            if first < n {
+                v.extend(b.to_vec_range(0, (n - first) * kvw)?);
+            }
+            Ok(v)
+        };
         let a = probe::ReportIn { w: &self.w, hw: self.probe_w.as_ref().expect("loaded above"), pos: self.pos - 1, token, target, kv: &kv, validate, native: &native };
         probe::report(&staged, &a)
     }
@@ -1398,6 +1436,7 @@ fn layer(
     let hoff = hist.as_ref().map(|h| crate::dspark::hist_offsets(h.rows, cfg.kv_width(), cfg.dim));
     let (st, d, du, nt) = (ex.st, cfg.dim, cfg.dim as u32, ntok as u32);
     let (heads, kvh, hd, n_rel) = (cfg.heads as u32, cfg.kv_heads as u32, cfg.head_dim as u32, cfg.n_rel);
+    let rows = (kc.len() / cfg.kv_width()) as u32;
     let kvw = cfg.kv_width();
     let rs = s.tmax * d;
     let tap = ntok == 1 && s.dbg.is_some() && loop_i.is_none() && ip == tap_layer();
@@ -1638,6 +1677,7 @@ fn layer(
             log_floor: cfg.log_floor,
             log_alpha: cfg.log_alpha,
             capacity,
+            rows,
         },
     )?;
     tap!("Qcur", q);
@@ -1655,7 +1695,7 @@ fn layer(
 
     // Attention, output gate, output projection, post conv into the residual stream. The
     // first layer of each block starts a new stream; the old one joins the blocks.
-    let shape = AttnShape { heads, kv_heads: kvh, head_dim: hd, n_rel, extent: cfg.rel_extent, window: if l.swa { cfg.n_swa } else { 0 }, capacity };
+    let shape = AttnShape { heads, kv_heads: kvh, head_dim: hd, n_rel, extent: cfg.rel_extent, window: if l.swa { cfg.n_swa } else { 0 }, capacity, rows };
     use astral_kernels::inkling::ATT_CHUNK;
     let mut gated = false;
     if ntok == 1 && (hd != 128 || n_rel > 32 || std::env::var_os("ASTRAL_ATTN_SIMPLE").is_some()) {
@@ -1671,8 +1711,10 @@ fn layer(
         // a capped split count with each split looping over chunks (no idle blocks at large
         // contexts). Prefill: exact splits for the chunk's last position.
         let chunk_loop = small_batch(ntok);
+        // A sliding-window query spans at most the window: its splits past that exit at once.
+        let span = if l.swa { capacity.min(cfg.n_swa) } else { capacity };
         let splits = if ntok == 1 {
-            capacity.div_ceil(ATT_CHUNK)
+            span.div_ceil(ATT_CHUNK)
         } else if chunk_loop {
             capacity.div_ceil(ATT_CHUNK).min(graph_splits())
         } else {

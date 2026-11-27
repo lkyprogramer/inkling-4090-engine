@@ -8,6 +8,8 @@ Changes in this fork on top of upstream `49a0a2b`.
 
 ### Added
 
+- Contexts up to 132,096 tokens (128K + 1,024) for Inkling 2 Mini. Sliding-window slots keep a ring of `n_swa + max(tmax, 8)` rows (rounded up to 64) instead of the full capacity, the attention kernels take the row count, and the 8,192 limits are gone except for the simple decode kernel. `ASTRAL_NO_SWA_RING=1` keeps full-length rows for comparison. On an RTX 4090: bit-identical to the previous build within 8K, 128K prompt in 31.8 s and decode at 73.7 tok/s; see [docs/hardware/rtx4090.md](docs/hardware/rtx4090.md#long-context).
+- `ASTRAL_TRACE_PREFILL=1` for `astral trace` (prefill all but the last token, then the probed step) and `ASTRAL_DUMP_KINDS` for `dump-final-logits`.
 - `ASTRAL_PASSES=R` (1–10) overrides the loop pass count of Inkling 2 Mini checkpoints; the attention-residual bank is sized from the pass count, and the native checkpoint loader passes `loop_config.is_varloop` on as `loop.varying`. Loads and runs the varloop research checkpoint at 1–10 passes; see [docs/hardware/rtx4090.md](docs/hardware/rtx4090.md#pass-count-research).
 - `astral trace`: read-only probes of the looped forward pass at chosen decode positions (block mixes, cross-pass messages, loop controllers, routing, attention mass, the stream and a raw lens), recomputed on the host and checked against the device output; see [docs/trace.md](docs/trace.md). Probes off, on and eager give bit-identical logits.
 - `ArchProfile::Sm89` for the RTX 4090 (F80 kernel family, FP8 tensor cores reported, no FP4 path); validation level Logic.
@@ -28,6 +30,7 @@ Changes in this fork on top of upstream `49a0a2b`.
 ### Performance (RTX 4090, Inkling 2 Mini UD-Q4_K_XL, single stream)
 
 - Decode: 143.1 tok/s without a draft, 173.9 tok/s with DSpark; 1.92× llama.cpp b12751 on the same GGUF.
+- The sliding-window ring costs 0.6–0.7 % of decode speed at 1K–7K tokens of context.
 
 ## [Unreleased] — upstream
 
