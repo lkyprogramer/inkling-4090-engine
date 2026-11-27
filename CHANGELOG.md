@@ -20,6 +20,10 @@ Changes in this fork on top of upstream `49a0a2b`.
 - GitHub issue and pull request templates; host-only CI (format, tests, script syntax).
 - Coverage diagnostics: `astral dump-verify-logits` (DSpark verify-pass rows, teacher-forced), a `decode` kind in `dump-final-logits` (prefill, then decode steps) and `ASTRAL_DUMP_PREFILL=1` for `dump-logits` (the serving path in llama.cpp's KL-divergence format).
 
+### Changed
+
+- On the RTX 4090 (sm_89) decode steps run the fused attention-input projections (q, gate, relative bias, k, v and the side projections) with dp4a instead of int8 tensor cores: 143.1 → 156.6 tok/s without a draft on the 32-prompt benchmark. Other GPUs keep tensor cores. `ASTRAL_DECODE_DP4A=1` or `ASTRAL_DECODE_MMA=1` forces either. The logits change in rounding only: KLD against llama.cpp mean 0.00196, p99 0.0229 (before: 0.00180 / 0.0228).
+
 ### Fixed
 
 - Prefill is bit-reproducible run to run. The split-K GEMMs of the prefill path (the grouped tensor-core GEMM and the loop controller's down projection) added their K slices with float `atomicAdd`, so the rounding depended on block timing (two identical runs differed by up to 0.0024 nats KL at single positions). Each split now stores its partial sums in a workspace (16 MiB, reserved per session) and a second kernel adds them in split order. Cost on an RTX 4090: +1.5 ms (2.5%) for a 16-token prefill, none measurable at 128 and 512 tokens. `astral selftest` gains split-K repeatability cases (the GEMM ones only test real inputs since the fix below).
@@ -29,7 +33,7 @@ Changes in this fork on top of upstream `49a0a2b`.
 
 ### Performance (RTX 4090, Inkling 2 Mini UD-Q4_K_XL, single stream)
 
-- Decode: 143.1 tok/s without a draft, 173.9 tok/s with DSpark; 1.92× llama.cpp b12751 on the same GGUF.
+- Decode: 156.6 tok/s without a draft, 172.4 tok/s with DSpark; 2.10× llama.cpp b12751 on the same GGUF (143.1 / 173.9 before the dp4a decode change).
 - The sliding-window ring costs 0.6–0.7 % of decode speed at 1K–7K tokens of context.
 
 ## [Unreleased] — upstream

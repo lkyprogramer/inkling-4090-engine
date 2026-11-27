@@ -35,6 +35,20 @@ Single-stream decode on one RTX 4090 (PCIe Gen3 x16, driver 610.57.04), 2026-11-
 | Astral DSpark vs Astral no draft | 1.20× (1.14–1.27) |
 | llama.cpp DSpark k = 3 vs llama.cpp no draft | 1.20× (1.15–1.26) |
 
+### Update, 2026-11-27: decode projections on dp4a
+
+Same method and prompts; Astral at fork `9593eb4` plus the sm_89 dp4a default for the fused
+attention-input projections of decode steps. llama.cpp was not re-run (same binary and file).
+
+| Configuration | Decode tok/s | Range over prompts | TTFT p50 | ITL p50 / p95 |
+|---|---|---|---|---|
+| **Astral, no draft** | **156.6** (was 143.1) | 156.5–156.6 | 90 ms | 6.41 / 6.45 ms |
+| **Astral, DSpark** (adaptive, k ≤ 6) | **172.4** (was 173.9) | 142.2–248.9 | 95 ms | 0.10 / 14.5 ms |
+
+Astral no draft vs llama.cpp no draft: 2.10×. Astral DSpark vs Astral no draft: 1.09× (95% CI
+1.03–1.15), down from 1.20×: draft and verify passes are unchanged, but plain decode got faster
+and the greedy text changed at near-ties, which moves the acceptance per prompt.
+
 With a draft, several tokens arrive in one chunk, so the ITL percentiles mix near-zero gaps
 with whole verification rounds. The DSpark gain here (1.20×) is below the 1.36× reported for
 H100 upstream; acceptance is low on the reasoning-heavy openings of these prompts (14–49% of

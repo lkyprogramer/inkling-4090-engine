@@ -441,6 +441,8 @@ struct Scratch {
     dbg: Option<Vec<(&'static str, Vec<f32>)>>,
     /// Read-only probes of the next decode step ([`Session::arm_probe`]).
     probe: Option<Box<probe::Probe>>,
+    /// Decode projections on tensor cores rather than dp4a ([`decode_q8_mma`]).
+    decode_mma: bool,
 }
 
 /// A [`MmaWork`] on the device (fixed-size buffers, rewritten per use).
@@ -644,6 +646,7 @@ impl Session {
             },
             dbg: None,
             probe: None,
+            decode_mma: decode_q8_mma(ctx)?,
         };
         let mut me = Self {
             stream: Stream::new(ctx)?,
@@ -1352,6 +1355,22 @@ fn split_prefill() -> bool {
 
 /// Passes of 2..=8 tokens (speculative verification) use the grouped dp4a GEMV instead of the
 /// tensor-core prefill GEMMs (`ASTRAL_SMALL_MMA=1` to keep the latter).
+/// Whether decode runs the fused attention-input projections (q, gate, rel, k, v and the side
+/// projections) on tensor cores (`launch_q_multi_mma`) or with dp4a (`launch_q_multi`). Tensor
+/// cores measured faster on an H100 (174.5 vs 171.4 tok/s), dp4a on an RTX 4090 (sm_89: 154.2 vs
+/// 140.1 tok/s at 1K tokens of context, 147.5 vs 134.4 at 7K). `ASTRAL_DECODE_DP4A=1` or
+/// `ASTRAL_DECODE_MMA=1` forces one of them.
+fn decode_q8_mma(ctx: &Context) -> Result<bool> {
+    if std::env::var_os("ASTRAL_DECODE_DP4A").is_some() {
+        return Ok(false);
+    }
+    if std::env::var_os("ASTRAL_DECODE_MMA").is_some() {
+        return Ok(true);
+    }
+    let (major, minor) = ctx.device().compute_capability()?;
+    Ok(astral_core::arch::ArchProfile::from_compute_capability(major, minor) != Some(astral_core::arch::ArchProfile::Sm89))
+}
+
 fn small_batch(ntok: usize) -> bool {
     ntok > 1 && ntok <= QITEM_ROWS && std::env::var_os("ASTRAL_SMALL_MMA").is_none()
 }
@@ -1589,9 +1608,8 @@ fn layer(
                 items.push(MultiItem { m: vq, x: &s.qa[iv], y: &mut s.vdyn });
             }
         }
-        // Decode: the tensor-core fused GEMV (measured faster than dp4a here: 174.5 vs 171.4 tok/s);
-        // ASTRAL_DECODE_DP4A=1 for the dp4a kernel.
-        if ntok == 1 && Gemv::small_mma() && std::env::var_os("ASTRAL_DECODE_DP4A").is_none() && l.wq.k.is_multiple_of(128) {
+        // Decode: one fused GEMV, on tensor cores or with dp4a by GPU (decode_q8_mma).
+        if ntok == 1 && s.decode_mma && Gemv::small_mma() && l.wq.k.is_multiple_of(128) {
             ex.gemv.launch_q_multi_mma(st, &mut items, 1)?;
         } else if ntok == 1 {
             ex.gemv.launch_q_multi(st, &mut items)?;

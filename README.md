@@ -31,9 +31,9 @@ On one RTX 4090 with the unsloth UD-Q4_K_XL GGUF, compared with llama.cpp b12751
 
 | | Astral (this fork) | llama.cpp | Speedup |
 |---|---|---|---|
-| Decode, no draft | 143.1 tok/s | 74.7 tok/s | 1.92× |
-| Decode, DSpark draft | 173.9 tok/s | 90.5 tok/s (k = 3) | 1.91× |
-| KL divergence vs llama.cpp, decode path | mean 0.0018, p99 0.023 | llama.cpp's own `-ub 512` vs `-ub 1`: 0.0020 / 0.028 | |
+| Decode, no draft | 156.6 tok/s | 74.7 tok/s | 2.10× |
+| Decode, DSpark draft | 172.4 tok/s | 90.5 tok/s (k = 3) | 1.90× |
+| KL divergence vs llama.cpp, decode path | mean 0.0020, p99 0.023 | llama.cpp's own `-ub 512` vs `-ub 1`: 0.0020 / 0.028 | |
 
 Open items: DSpark past about 72K tokens of context (the draft's K/V is FP32 at full length), and tuning the prefill (`mma3`) and MoE paths for sm_89. Issues and pull requests for this fork go to [this repository](https://github.com/lkyprogramer/inkling-4090-engine/issues); upstream issues belong upstream.
 
