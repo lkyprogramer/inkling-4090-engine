@@ -35,19 +35,26 @@ Single-stream decode on one RTX 4090 (PCIe Gen3 x16, driver 610.57.04), 2026-11-
 | Astral DSpark vs Astral no draft | 1.20× (1.14–1.27) |
 | llama.cpp DSpark k = 3 vs llama.cpp no draft | 1.20× (1.15–1.26) |
 
-### Update, 2026-11-27: decode projections on dp4a
+### Update, 2026-11-27: small batches on dp4a
 
-Same method and prompts; Astral at fork `9593eb4` plus the sm_89 dp4a default for the fused
-attention-input projections of decode steps. llama.cpp was not re-run (same binary and file).
+Same method and prompts; llama.cpp was not re-run (same binary and file).
+
+- Fork `3f5a49d` moved the fused decode projections to dp4a on sm_89: 156.6 tok/s without a
+  draft and 172.4 with DSpark. That default was taken back because decode then drifts further from
+  prefill than the hold-out check allows (num-3 on set B, step vs decode, largest KL 0.082 against
+  0.023 for llama.cpp's own -ub 1 vs batch). `ASTRAL_DECODE_DP4A=1` still selects it.
+- Now: decode on tensor cores as before, and the Q8_0 products of 2–8-token passes (DSpark verify
+  and draft, including the 201,024-row LM head) on dp4a, where the tensor-core kernel read the
+  head at about 390 GB/s.
 
 | Configuration | Decode tok/s | Range over prompts | TTFT p50 | ITL p50 / p95 |
 |---|---|---|---|---|
-| **Astral, no draft** | **156.6** (was 143.1) | 156.5–156.6 | 90 ms | 6.41 / 6.45 ms |
-| **Astral, DSpark** (adaptive, k ≤ 6) | **172.4** (was 173.9) | 142.2–248.9 | 95 ms | 0.10 / 14.5 ms |
+| **Astral, no draft** | **142.0** | 141.9–142.0 | 91 ms | 7.07 / 7.10 ms |
+| **Astral, DSpark** (adaptive, k ≤ 6) | **206.3** (was 173.9) | 166.3–313.5 | 91 ms | 0.11 / 12.5 ms |
 
-Astral no draft vs llama.cpp no draft: 2.10×. Astral DSpark vs Astral no draft: 1.09× (95% CI
-1.03–1.15), down from 1.20×: draft and verify passes are unchanged, but plain decode got faster
-and the greedy text changed at near-ties, which moves the acceptance per prompt.
+Astral DSpark vs Astral no draft: 1.44× (95% CI 1.37–1.52), up from 1.20×. Against llama.cpp's
+DSpark (k = 3, 90.5 tok/s, earlier run): 2.28× by the means (not paired). The verify rows and the
+greedy text change at near-ties, which moves the acceptance per prompt.
 
 With a draft, several tokens arrive in one chunk, so the ITL percentiles mix near-zero gaps
 with whole verification rounds. The DSpark gain here (1.20×) is below the 1.36× reported for

@@ -183,7 +183,7 @@ fn item(ctx: &Arc<Context>, rows: usize, x0: u32) -> Result<DeviceBuffer<u32>> {
 /// applies (Q8_0), else one grouped dp4a item (`items`).
 fn mm_small(gemv: &Gemv, st: &Stream, m: &GemvMatrix, x: &QAct, rows: u32, y: &mut DeviceBuffer<f32>, items: &DeviceBuffer<u32>) -> Result<()> {
     let mut it = [MultiItem { m, x, y }];
-    if Gemv::small_mma() && m.ty == GemvType::Q8_0 && m.k.is_multiple_of(128) && x.slots >= rows {
+    if gemv.small_mma() && m.ty == GemvType::Q8_0 && m.k.is_multiple_of(128) && x.slots >= rows {
         return gemv.launch_q_multi_mma(st, &mut it, rows);
     }
     if rows >= 2 && Gemv::multi_t_ok(&it, rows) {

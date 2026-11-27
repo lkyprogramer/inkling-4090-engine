@@ -15,8 +15,8 @@ The defaults are the fastest measured configuration. The variables below exist f
 | `ASTRAL_PDL` | on (cc ≥ 9.0) | `0` disables programmatic dependent launch |
 | `ASTRAL_NO_GRAPH` | off | Run decode steps eagerly instead of as CUDA graphs |
 | `ASTRAL_ATT_SPLITS` | `32` | Most attention splits in graph-captured multi-token passes |
-| `ASTRAL_DECODE_DP4A` | off | dp4a instead of tensor-core GEMVs for decode projections |
-| `ASTRAL_SMALL_DP4A` | off | dp4a instead of tensor-core GEMVs for 2–8-token passes |
+| `ASTRAL_DECODE_DP4A` | off | dp4a instead of tensor-core GEMVs for decode projections (about 10% faster on an RTX 4090, but decode moves further from prefill; see `decode_q8_mma`) |
+| `ASTRAL_SMALL_DP4A` | off (on for sm_89) | dp4a instead of tensor-core GEMVs for 2–8-token passes (DSpark verify and draft); `ASTRAL_SMALL_TC=1` forces tensor cores |
 | `ASTRAL_LM_HEAD_Q8` | off | Qwen3.8-27B: quantise the BF16 LM head to Q8_0 at load |
 
 ## Speculative decoding

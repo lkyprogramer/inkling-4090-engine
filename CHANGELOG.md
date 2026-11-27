@@ -22,7 +22,8 @@ Changes in this fork on top of upstream `49a0a2b`.
 
 ### Changed
 
-- On the RTX 4090 (sm_89) decode steps run the fused attention-input projections (q, gate, relative bias, k, v and the side projections) with dp4a instead of int8 tensor cores: 143.1 → 156.6 tok/s without a draft on the 32-prompt benchmark. Other GPUs keep tensor cores. `ASTRAL_DECODE_DP4A=1` or `ASTRAL_DECODE_MMA=1` forces either. The logits change in rounding only: KLD against llama.cpp mean 0.00196, p99 0.0229 (before: 0.00180 / 0.0228).
+- On the RTX 4090 (sm_89) the Q8_0 products of 2–8-token passes (DSpark verify and draft, including the LM head) run with dp4a instead of int8 tensor cores: DSpark 173.9 → 206.3 tok/s on the 32-prompt benchmark. Other GPUs keep tensor cores; `ASTRAL_SMALL_DP4A=1` or `ASTRAL_SMALL_TC=1` forces either.
+- Decode is back on tensor cores on the RTX 4090. `3f5a49d` had moved it to dp4a (+10%), but decode then drifts further from prefill than the hold-out check allows (num-3, set B, step vs decode: largest KL 0.082 against 0.023). `ASTRAL_DECODE_DP4A=1` selects dp4a; `ASTRAL_DECODE_MMA` is gone.
 
 ### Fixed
 
@@ -33,7 +34,7 @@ Changes in this fork on top of upstream `49a0a2b`.
 
 ### Performance (RTX 4090, Inkling 2 Mini UD-Q4_K_XL, single stream)
 
-- Decode: 156.6 tok/s without a draft, 172.4 tok/s with DSpark; 2.10× llama.cpp b12751 on the same GGUF (143.1 / 173.9 before the dp4a decode change).
+- Decode: 142.0 tok/s without a draft, 206.3 tok/s with DSpark; 1.90× and 2.28× llama.cpp b12751 on the same GGUF.
 - The sliding-window ring costs 0.6–0.7 % of decode speed at 1K–7K tokens of context.
 
 ## [Unreleased] — upstream

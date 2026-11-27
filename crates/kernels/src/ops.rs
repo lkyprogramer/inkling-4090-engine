@@ -391,6 +391,8 @@ pub struct Gemv {
     /// [`Gemv::launch_q_multi_t`] for 2..=8 tokens (index T - 2).
     multi_t: Vec<Function>,
     multi_mma: Function,
+    /// Small batches (2..=8 tokens) on tensor cores rather than dp4a ([`Gemv::small_mma`]).
+    small_mma: bool,
     items: [Function; 2],
     mma: [Function; 2],
     mma2: [Function; 2],
@@ -577,6 +579,7 @@ impl Gemv {
             multi: f("astral_gemv_q8_0_multi")?,
             multi_t: (2..=8).map(|t| f(&format!("astral_gemv_q8_0_multi_t{t}"))).collect::<Result<_>>()?,
             multi_mma: f("astral_gemv_q8_0_multi_mma")?,
+            small_mma: std::env::var_os("ASTRAL_SMALL_DP4A").is_none(),
             items: [f("astral_gemm_q8_0_items")?, f("astral_gemm_nvfp4_items")?],
             mma: [f("astral_gemm_q8_0_mma")?, f("astral_gemm_nvfp4_mma")?],
             mma2: [f("astral_gemm_q8_0_mma2")?, f("astral_gemm_nvfp4_mma2")?],
@@ -1007,9 +1010,15 @@ impl Gemv {
         unsafe { self.multi_mma.launch(cfg, stream, &mut params) }
     }
 
-    /// Whether the small-batch products run on tensor cores ([`Gemv::launch_q_multi_mma`]).
-    pub fn small_mma() -> bool {
-        std::env::var_os("ASTRAL_SMALL_DP4A").is_none()
+    /// Whether the small-batch products run on tensor cores ([`Gemv::launch_q_multi_mma`]):
+    /// by default unless `ASTRAL_SMALL_DP4A=1`; a model may choose per GPU
+    /// ([`Gemv::set_small_mma`]).
+    pub fn small_mma(&self) -> bool {
+        self.small_mma
+    }
+
+    pub fn set_small_mma(&mut self, on: bool) {
+        self.small_mma = on;
     }
 
     /// Up to 8 single-matrix Q8_0 products with the same `k` for `ntok` (2..=8) tokens in one
@@ -1020,7 +1029,7 @@ impl Gemv {
             return Err(invalid(format!("launch_q_multi_t: {} products for {ntok} tokens do not qualify", items.len())));
         }
         let k = items[0].m.k;
-        if Self::small_mma() && k.is_multiple_of(128) {
+        if self.small_mma && k.is_multiple_of(128) {
             return self.launch_q_multi_mma(stream, items, ntok);
         }
         let mut d = MultiQ8 { qs: [0; 8], aux: [0; 8], xq: [0; 8], xd: [0; 8], y: [0; 8], n: [0; 8], start: [0; 9], count: items.len() as u32 };

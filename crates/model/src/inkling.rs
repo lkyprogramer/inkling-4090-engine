@@ -646,7 +646,7 @@ impl Session {
             },
             dbg: None,
             probe: None,
-            decode_mma: decode_q8_mma(ctx)?,
+            decode_mma: decode_q8_mma(),
         };
         let mut me = Self {
             stream: Stream::new(ctx)?,
@@ -655,6 +655,7 @@ impl Session {
                 // Deterministic split-K for the prefill GEMMs (bit-reproducible prefill).
                 let mut g = Gemv::new(&reg)?;
                 g.reserve_split_workspace(ctx, SPLIT_WORKSPACE_FLOATS)?;
+                g.set_small_mma(small_q8_mma(ctx)?);
                 g
             },
             ops: InklingOps::new(&reg)?,
@@ -1353,24 +1354,35 @@ fn split_prefill() -> bool {
     std::env::var_os("ASTRAL_ATTN_SPLIT_PREFILL").is_some()
 }
 
-/// Passes of 2..=8 tokens (speculative verification) use the grouped dp4a GEMV instead of the
-/// tensor-core prefill GEMMs (`ASTRAL_SMALL_MMA=1` to keep the latter).
 /// Whether decode runs the fused attention-input projections (q, gate, rel, k, v and the side
-/// projections) on tensor cores (`launch_q_multi_mma`) or with dp4a (`launch_q_multi`). Tensor
-/// cores measured faster on an H100 (174.5 vs 171.4 tok/s), dp4a on an RTX 4090 (sm_89: 154.2 vs
-/// 140.1 tok/s at 1K tokens of context, 147.5 vs 134.4 at 7K). `ASTRAL_DECODE_DP4A=1` or
-/// `ASTRAL_DECODE_MMA=1` forces one of them.
-fn decode_q8_mma(ctx: &Context) -> Result<bool> {
-    if std::env::var_os("ASTRAL_DECODE_DP4A").is_some() {
+/// projections) on tensor cores (`launch_q_multi_mma`, default) or with dp4a (`launch_q_multi`,
+/// `ASTRAL_DECODE_DP4A=1`, or `ASTRAL_SMALL_DP4A=1` for every small product). On an RTX 4090 dp4a
+/// decodes about 10% faster (154.2 vs 140.1 tok/s at 1K tokens of context), but it moves decode
+/// further from prefill: the step-vs-decode check of the hold-out set (num-3, 320 positions) then
+/// fails on its largest KL (0.082 against 0.023 for llama.cpp's own -ub 1 vs batch), so it is not
+/// the default there.
+fn decode_q8_mma() -> bool {
+    std::env::var_os("ASTRAL_DECODE_DP4A").is_none() && std::env::var_os("ASTRAL_SMALL_DP4A").is_none()
+}
+
+/// Whether the Q8_0 products of 2..=8-token passes (DSpark verify and draft) run on tensor cores
+/// (`launch_q_multi_mma`) or with dp4a (`launch_q_multi_t`). Tensor cores on most GPUs, dp4a on
+/// an RTX 4090 (sm_89), where the tensor-core kernel reads the 201024-row LM head
+/// at about 390 GB/s; DSpark 171.0 vs 206.3 tok/s there. `ASTRAL_SMALL_DP4A=1` or
+/// `ASTRAL_SMALL_TC=1` forces one of them.
+fn small_q8_mma(ctx: &Context) -> Result<bool> {
+    if std::env::var_os("ASTRAL_SMALL_DP4A").is_some() {
         return Ok(false);
     }
-    if std::env::var_os("ASTRAL_DECODE_MMA").is_some() {
+    if std::env::var_os("ASTRAL_SMALL_TC").is_some() {
         return Ok(true);
     }
     let (major, minor) = ctx.device().compute_capability()?;
     Ok(astral_core::arch::ArchProfile::from_compute_capability(major, minor) != Some(astral_core::arch::ArchProfile::Sm89))
 }
 
+/// Passes of 2..=8 tokens (speculative verification) use the grouped dp4a GEMV instead of the
+/// tensor-core prefill GEMMs (`ASTRAL_SMALL_MMA=1` to keep the latter).
 fn small_batch(ntok: usize) -> bool {
     ntok > 1 && ntok <= QITEM_ROWS && std::env::var_os("ASTRAL_SMALL_MMA").is_none()
 }
@@ -1608,8 +1620,8 @@ fn layer(
                 items.push(MultiItem { m: vq, x: &s.qa[iv], y: &mut s.vdyn });
             }
         }
-        // Decode: one fused GEMV, on tensor cores or with dp4a by GPU (decode_q8_mma).
-        if ntok == 1 && s.decode_mma && Gemv::small_mma() && l.wq.k.is_multiple_of(128) {
+        // Decode: one fused GEMV, on tensor cores unless dp4a is asked for (decode_q8_mma).
+        if ntok == 1 && s.decode_mma && l.wq.k.is_multiple_of(128) {
             ex.gemv.launch_q_multi_mma(st, &mut items, 1)?;
         } else if ntok == 1 {
             ex.gemv.launch_q_multi(st, &mut items)?;
