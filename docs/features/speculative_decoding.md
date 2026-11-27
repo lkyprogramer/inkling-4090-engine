@@ -33,7 +33,7 @@ On a 16-prompt benchmark, adaptive length reached 241.2 tok/s against 234.6 tok/
 | `ASTRAL_SPEC_POLICY=model` | burst rule | Pick *k* from per-position acceptance rates and measured round times instead |
 | `ASTRAL_SPEC_GROW`, `ASTRAL_SPEC_SHRINK` | `1`, `dec` | Burst-rule step sizes (`dec`, `jump`, `half`) |
 | `ASTRAL_DRAFT_HEAD_FP4=1` | off | NVFP4 copy of the LM head for the draft's base logits |
-| `ASTRAL_DRAFT_KV_F16=1` | off (f32) | Draft K/V stored as f16: half the draft cache, drafts change in rounding only |
+| `ASTRAL_DRAFT_KV_F32=1` | off (f16) | Draft K/V stored as f32 (twice the draft cache). The f16 default changes the drafts in rounding only: identical generated tokens, rounds and acceptance at 16K and 100K |
 | `ASTRAL_DRAFT_KV_FULL=1` | off | Keep every position for the draft's sliding-window layers too (by default they keep a ring of `max(window + block, tmax)` rows; the drafts are bit-identical either way) |
 | `ASTRAL_SPEC_LOG=<file>` | off | Append one JSON line per round: position, drafts verified, accepted, wall ms |
 

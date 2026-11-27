@@ -492,6 +492,8 @@ pub(crate) fn report(st: &Staged, a: &ReportIn) -> Result<Vec<Value>> {
             let scale = 1.0 / (hd as f64).sqrt();
             let (mut mass, mut ents, mut top_d) = (Vec::new(), Vec::new(), Vec::new());
             let mut err_max = 0.0f64;
+            let sparse = window == 0 && std::env::var_os("ASTRAL_TRACE_SPARSE").is_some();
+            let mut shadow = Vec::new();
             let gate = one("attn.gate");
             let aout = one("attn.out");
             for hh in 0..h {
@@ -524,6 +526,9 @@ pub(crate) fn report(st: &Staged, a: &ReportIn) -> Result<Vec<Value>> {
                 }
                 let ent = -(p.iter().chain(std::iter::once(&psink)).filter(|&&v| v > 0.0).map(|v| v * v.ln()).sum::<f64>());
                 let (am, _) = p.iter().enumerate().fold((0usize, -1.0f64), |acc, (i, &v)| if v > acc.1 { (i, v) } else { acc });
+                if sparse {
+                    shadow.push(sparse_shadow(&lg, &p, pos, lo, &kr, vr.as_deref(), g, hd, kv_w, qh, scale, sk[hh] as f64, (pos as u64) << 16 ^ (c.slot as u64) << 8 ^ hh as u64));
+                }
                 mass.push(buckets.to_vec());
                 ents.push(ent);
                 top_d.push(pos - (lo + am));
@@ -539,6 +544,9 @@ pub(crate) fn report(st: &Staged, a: &ReportIn) -> Result<Vec<Value>> {
             let mean_b: Vec<f64> = (0..5).map(|b| mass.iter().map(|m| m[b]).sum::<f64>() / h as f64).collect();
             let mut at = json!({"window": window, "positions": n, "mass_mean": {"sink": mean_b[0], "self": mean_b[1], "near_1_63": mean_b[2], "mid_64_1023": mean_b[3], "far_1024": mean_b[4]},
                                 "per_head": {"sink": mass.iter().map(|m| m[0]).collect::<Vec<_>>(), "far_1024": mass.iter().map(|m| m[4]).collect::<Vec<_>>(), "entropy": ents, "argmax_dist": top_d}});
+            if sparse {
+                at["sparse"] = json!(shadow);
+            }
             if vr.is_some() {
                 let scale = aout.map_or(1.0, |o| o.iter().map(|v| v.abs() as f64).fold(0.0, f64::max).max(1e-30));
                 at["recompute_rel_err"] = json!(err_max / scale);
@@ -558,4 +566,129 @@ pub(crate) fn report(st: &Staged, a: &ReportIn) -> Result<Vec<Value>> {
         h["checks"] = worst;
     }
     Ok(out)
+}
+
+/// T28 dense shadow (ASTRAL_TRACE_SPARSE=1, global layers): which 64-token blocks of the far
+/// history (distance >= 1024) a block-sparse decode could skip, against the exact attention of
+/// this head. Block metadata are the mean key and radius (max distance of a key from the mean);
+/// the logit bound of a block is scale * (q . mean + |q| * radius) plus its largest relative
+/// bias, minus the sink logit. Policies at a budget (share of far blocks kept): the bound, the mean alone, the
+/// oracle (true block mass) and a seeded random choice; a threshold rule skips the blocks whose
+/// bound mass (block size * exp(bound) / the recent window's partition sum) is at most tau, which
+/// bounds the true skipped mass from above. Missed mass is true probability; the output error is
+/// |o_kept / (1 - missed) - o| / |o| over the head's value dims (needs the V cache).
+#[allow(clippy::too_many_arguments)]
+fn sparse_shadow(lg: &[f64], p: &[f64], pos: usize, lo: usize, kr: &[u16], vr: Option<&[u16]>, g: usize, hd: usize, kv_w: usize, qh: &[f32], scale: f64, sink: f64, seed: u64) -> Option<serde_json::Value> {
+    const B: usize = 64;
+    const RECENT: usize = 1024;
+    let n = lg.len();
+    // Far tokens: distance >= RECENT; blocks by absolute position, only whole far blocks.
+    let far_end = (pos + 1).saturating_sub(RECENT); // absolute positions < far_end are far
+    let nb = far_end / B;
+    if nb < 2 || lo > 0 {
+        return None;
+    }
+    let qn: f64 = qh.iter().map(|&v| (v as f64).powi(2)).sum::<f64>().sqrt();
+    let mut mass = vec![0f64; nb];
+    let mut bound = vec![0f64; nb];
+    let mut meanlg = vec![0f64; nb];
+    let mut kb = vec![0f64; B * hd];
+    for b in 0..nb {
+        for (i, t) in (b * B..(b + 1) * B).enumerate() {
+            for dd in 0..hd {
+                kb[i * hd + dd] = f16_to_f32(kr[t * kv_w + g * hd + dd]) as f64;
+            }
+        }
+        let mut mu = vec![0f64; hd];
+        for i in 0..B {
+            for (dd, m) in mu.iter_mut().enumerate() {
+                *m += kb[i * hd + dd] / B as f64;
+            }
+        }
+        let mut rad = 0f64;
+        let mut bmax = f64::MIN;
+        for (i, t) in (b * B..(b + 1) * B).enumerate() {
+            let k = &kb[i * hd..(i + 1) * hd];
+            let d2: f64 = k.iter().zip(&mu).map(|(a, m)| (a - m).powi(2)).sum();
+            rad = rad.max(d2.sqrt());
+            let dot: f64 = k.iter().zip(qh).map(|(a, &q)| a * q as f64).sum();
+            bmax = bmax.max(lg[t] - (scale * dot - sink)); // the relative bias (0 past its extent)
+            mass[b] += p[t];
+        }
+        let qmu: f64 = (0..hd).map(|dd| qh[dd] as f64 * mu[dd]).sum();
+        bound[b] = scale * (qmu + qn * rad) + bmax - sink;
+        meanlg[b] = scale * qmu - sink;
+    }
+    let far_mass: f64 = mass.iter().sum();
+    // Per-block and recent partial sums of p * v (one pass over V), then the value output of a
+    // kept set (renormalised) against the exact one.
+    let parts: Option<(Vec<Vec<f64>>, Vec<f64>)> = vr.map(|vr| {
+        let mut blk = vec![vec![0f64; hd]; nb];
+        let mut rec = vec![0f64; hd];
+        for t in 0..n {
+            let acc = if t < nb * B { &mut blk[t / B] } else { &mut rec };
+            for (dd, a) in acc.iter_mut().enumerate() {
+                *a += p[t] * f16_to_f32(vr[t * kv_w + g * hd + dd]) as f64;
+            }
+        }
+        (blk, rec)
+    });
+    let out_err = |keep: &[bool], missed: f64| -> Option<f64> {
+        let (blk, rec) = parts.as_ref()?;
+        let (mut e2, mut o2) = (0f64, 0f64);
+        for dd in 0..hd {
+            let (mut full, mut kept) = (rec[dd], rec[dd]);
+            for (b, s) in blk.iter().enumerate() {
+                full += s[dd];
+                if keep[b] {
+                    kept += s[dd];
+                }
+            }
+            let kept = kept / (1.0 - missed).max(1e-30);
+            e2 += (kept - full).powi(2);
+            o2 += full * full;
+        }
+        Some((e2 / o2.max(1e-300)).sqrt())
+    };
+    let pick = |score: &[f64], k: usize| -> Vec<bool> {
+        let mut ord: Vec<usize> = (0..nb).collect();
+        ord.sort_by(|&x, &y| score[y].total_cmp(&score[x]).then(x.cmp(&y)));
+        let mut keep = vec![false; nb];
+        for &i in &ord[..k] {
+            keep[i] = true;
+        }
+        keep
+    };
+    let mut rnd = vec![0f64; nb];
+    let mut s = seed | 1;
+    for r in rnd.iter_mut() {
+        s ^= s << 13;
+        s ^= s >> 7;
+        s ^= s << 17;
+        *r = (s >> 11) as f64;
+    }
+    let missed = |keep: &[bool]| -> f64 { (0..nb).filter(|&b| !keep[b]).map(|b| mass[b]).sum() };
+    let mut budgets = serde_json::Map::new();
+    for &frac in &[0.0625f64, 0.125, 0.25, 0.5] {
+        let k = ((nb as f64 * frac).ceil() as usize).clamp(1, nb);
+        let mut pol = serde_json::Map::new();
+        for (name, score) in [("bound", &bound), ("mean", &meanlg), ("oracle", &mass), ("random", &rnd)] {
+            let keep = pick(score, k);
+            let m = missed(&keep);
+            pol.insert(name.into(), json!([m, out_err(&keep, m)]));
+        }
+        budgets.insert(format!("{frac}"), serde_json::Value::Object(pol));
+    }
+    // Threshold rule against the recent window's partition sum (the sink's logit is 0 here).
+    let mr = lg[nb * B..].iter().cloned().fold(0f64, f64::max);
+    let zr: f64 = lg[nb * B..].iter().map(|v| (v - mr).exp()).sum::<f64>() + (-mr).exp();
+    let mut thr = serde_json::Map::new();
+    for &tau in &[1e-3f64, 1e-4] {
+        let bm = |s: f64| B as f64 * (s - mr).exp() / zr;
+        let keep: Vec<bool> = bound.iter().map(|&s| bm(s) > tau).collect();
+        let bsum: f64 = (0..nb).filter(|&b| !keep[b]).map(|b| bm(bound[b])).sum();
+        let m = missed(&keep);
+        thr.insert(format!("{tau}"), json!({"kept": keep.iter().filter(|&&x| x).count() as f64 / nb as f64, "missed": m, "bound": bsum, "out_err": out_err(&keep, m)}));
+    }
+    Some(json!({"far_blocks": nb, "far_mass": far_mass, "budget": budgets, "threshold": thr}))
 }

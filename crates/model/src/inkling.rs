@@ -443,6 +443,19 @@ struct Scratch {
     probe: Option<Box<probe::Probe>>,
     /// Decode projections on tensor cores rather than dp4a ([`decode_q8_mma`]).
     decode_mma: bool,
+    /// Loop self-speculation diagnosis (`ASTRAL_LS_DIAG=1`, eager decode only): see [`LsDiag`].
+    ls: Option<Box<LsDiag>>,
+}
+
+/// Loop self-speculation diagnosis (T32): on each eager decode step, after every core pass but
+/// the last, the coda and the LM head also run on that pass's output (the draft of a model with
+/// fewer passes, reading the real history of the coda slots) and the greedy pick is kept per pass.
+/// The coda's conv states are restored after each draft layer and its K/V row at this position is
+/// rewritten by the real coda later in the step, so the real output is unchanged.
+struct LsDiag {
+    cur: DeviceBuffer<f32>,
+    conv: DeviceBuffer<f32>,
+    next: DeviceBuffer<i32>,
 }
 
 /// A [`MmaWork`] on the device (fixed-size buffers, rewritten per use).
@@ -647,6 +660,11 @@ impl Session {
             dbg: None,
             probe: None,
             decode_mma: decode_q8_mma(),
+            ls: if std::env::var_os("ASTRAL_LS_DIAG").is_some() {
+                Some(Box::new(LsDiag { cur: z(d)?, conv: z(3 * c.conv_channels())?, next: DeviceBuffer::<i32>::zeroed(ctx, MAX_PASSES)? }))
+            } else {
+                None
+            },
         };
         let mut me = Self {
             stream: Stream::new(ctx)?,
@@ -1085,6 +1103,14 @@ impl Session {
     }
 
     /// Logits of the last token of the last call (unpadded vocabulary), copied to the host.
+    /// Loop self-speculation diagnosis (`ASTRAL_LS_DIAG=1`): the greedy pick of the last decode
+    /// step after each core pass but the last (pass 1, 2, ...), or None when off.
+    pub fn ls_picks(&self) -> Result<Option<Vec<u32>>> {
+        let Some(ls) = self.s.ls.as_ref() else { return Ok(None) };
+        let n = self.w.cfg.passes.saturating_sub(1);
+        Ok(Some(ls.next.to_vec()?[..n].iter().map(|&v| v as u32).collect()))
+    }
+
     pub fn logits(&self) -> Result<Vec<f32>> {
         let mut v = self.s.logits.to_vec()?;
         v.truncate(self.w.cfg.vocab);
@@ -1218,7 +1244,17 @@ fn forward(
     let (core_n, n_layer, core0, core1) = (cfg.core_end - cfg.core_start, cfg.n_layer, cfg.core_start, cfg.core_end);
     let taps = io.taps;
     let hist_rows = io.hist_rows;
-    let mut run = |slot: usize, ip: usize, loop_i: Option<usize>, blocks: &mut Vec<u32>, next_row: &mut usize, s: &mut Scratch| -> Result<()> {
+    let mut run = |slot: usize, ip: usize, loop_i: Option<usize>, blocks: &mut Vec<u32>, next_row: &mut usize, s: &mut Scratch, shadow: bool| -> Result<()> {
+        if shadow {
+            // Loop self-speculation draft (LsDiag): this coda layer leaves its conv state as found.
+            let n = conv[slot].len();
+            let ls = s.ls.as_mut().ok_or_else(|| bad("ls diag not allocated".into()))?;
+            ls.conv.copy_range_from_async(0, &conv[slot], 0, n, ex.st)?;
+            layer(ex, w, s, &mut kc[slot], &mut vc[slot], &mut conv[slot], ip, loop_i, blocks, next_row, capacity, pos0, ntok, None)?;
+            let ls = s.ls.as_mut().ok_or_else(|| bad("ls diag not allocated".into()))?;
+            conv[slot].copy_range_from_async(0, &ls.conv, 0, n, ex.st)?;
+            return Ok(());
+        }
         // Diagnostic (ASTRAL_EAGER_DIAG=k): an eager pass stops after k layer slots.
         if pos0 != u32::MAX && ntok >= 1 && slot >= DIAG_LIMIT.load(std::sync::atomic::Ordering::Relaxed) {
             return Ok(());
@@ -1257,7 +1293,7 @@ fn forward(
     let (start, end) = (cfg.core_start, cfg.core_end);
     let core = end - start;
     for ip in 0..start {
-        run(ip, ip, None, &mut blocks, &mut next_row, s)?;
+        run(ip, ip, None, &mut blocks, &mut next_row, s, false)?;
     }
     // Every pass starts from the prelude output.
     s.prelude.copy_range_from_async(0, &s.cur, 0, td, ex.st)?;
@@ -1273,7 +1309,7 @@ fn forward(
         }
         for ip in start..end {
             if pass == 0 {
-                run(ip, ip, None, &mut blocks, &mut next_row, s)?;
+                run(ip, ip, None, &mut blocks, &mut next_row, s, false)?;
                 continue;
             }
             let li = ip - start;
@@ -1284,11 +1320,35 @@ fn forward(
                 p.states(ex.st, "msg_mix.states", &s.bank, &bank, rs, &s.bank_out, d)?;
                 p.f(ex.st, "msg_mix.out", &s.msgs, 0, mq.len(), Vec::new())?;
             }
-            run(cfg.n_layer + (pass - 1) * core + li, ip, Some(li), &mut blocks, &mut next_row, s)?;
+            run(cfg.n_layer + (pass - 1) * core + li, ip, Some(li), &mut blocks, &mut next_row, s, false)?;
+        }
+        // Loop self-speculation diagnosis: the coda and head on this pass's output (LsDiag).
+        if ntok == 1 && pass + 1 < cfg.passes && s.ls.is_some() {
+            {
+                let Scratch { ls, cur, .. } = &mut *s;
+                ls.as_mut().expect("checked").cur.copy_range_from_async(0, &*cur, 0, d, ex.st)?;
+            }
+            let (mut bc, mut nr) = (blocks.clone(), next_row);
+            for ip in end..cfg.n_layer {
+                run(ip, ip, None, &mut bc, &mut nr, s, true)?;
+            }
+            ex.ops.mix(ex.st, &s.bank, &bc, rs, &s.cur, &w.output_res_query, 1, &mut s.m, d as u32, 1)?;
+            ex.ops.rms_q8(ex.st, &s.m, d, Some(&w.output_norm), Some(&mut s.mn), &mut s.qa_last, 1, cfg.rms_eps)?;
+            match w.output.ty {
+                GemvType::Q8_0 | GemvType::Nvfp4 => ex.gemv.launch_q(ex.st, &w.output, &s.qa_last, &mut s.logits, None)?,
+                _ => ex.gemv.launch(ex.st, &w.output, &s.mn, 0, &mut s.logits)?,
+            }
+            if cfg.softcap != 0.0 {
+                ex.ops.softcap(ex.st, &mut s.logits, w.output.n, cfg.softcap)?;
+            }
+            let Scratch { ls, logits, cur, .. } = &mut *s;
+            let ls = ls.as_mut().expect("checked");
+            ex.ops.argmax(ex.st, &*logits, cfg.vocab as u32, &mut ls.next.view_mut(pass, 1)?)?;
+            cur.copy_range_from_async(0, &ls.cur, 0, d, ex.st)?;
         }
     }
     for ip in end..cfg.n_layer {
-        run(ip, ip, None, &mut blocks, &mut next_row, s)?;
+        run(ip, ip, None, &mut blocks, &mut next_row, s, false)?;
     }
 
     // Speculative decoding: the final-norm output of every token (a feature), and in verify

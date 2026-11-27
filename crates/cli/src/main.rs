@@ -20,7 +20,7 @@
 use astral_core::Result;
 use std::process::ExitCode;
 
-const USAGE: &str = "usage: astral <hw [--bench | --bench-fresh] | selftest | gguf-info <model> [--tensors] | verify-embd <file> <log> | verify-model <file> <log> | generate <model> <n> <ids...> | dump-logits <model> <llama kld base> <out> | dump-final-logits <model> <manifest> <out dir> | dump-verify-logits <model> <checkpoint dir> <k> <manifest> <out dir> | trace <model> <manifest> <out dir> | spec-generate <model> <checkpoint dir> <k> <n> <ids...|@file> | serve <model> [--checkpoint <dir>] [--no-draft] [--k 6] [--host 0.0.0.0] [--port 8000] [--ctx 8192] [--name inkling-2-mini] | version>";
+const USAGE: &str = "usage: astral <hw [--bench | --bench-fresh] | selftest | gguf-info <model> [--tensors] | verify-embd <file> <log> | verify-model <file> <log> | generate <model> <n> <ids...> | dump-logits <model> <llama kld base> <out> | dump-final-logits <model> <manifest> <out dir> | dump-verify-logits <model> <checkpoint dir> <k> <manifest> <out dir> | trace <model> <manifest> <out dir> | ls-diag <model> <first> <ids...|@file> | spec-generate <model> <checkpoint dir> <k> <n> <ids...|@file> | serve <model> [--checkpoint <dir>] [--no-draft] [--k 6] [--host 0.0.0.0] [--port 8000] [--ctx 8192] [--name inkling-2-mini] | version>";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -45,6 +45,7 @@ fn main() -> ExitCode {
         Some("trace") if args.len() >= 4 => cmd_trace(&args[1], &args[2], &args[3]),
         Some("dump-verify-logits") if args.len() >= 6 => cmd_dump_verify_logits(&args[1], &args[2], &args[3], &args[4], &args[5]),
         Some("cmp-prefill") if args.len() >= 3 => cmd_cmp_prefill(&args[1], &args[2..]),
+        Some("ls-diag") if args.len() >= 4 => cmd_ls_diag(&args[1], &args[2], &args[3..]),
         Some("spec-generate") if args.len() >= 6 => cmd_spec_generate(&args[1], &args[2], &args[3], &args[4], &args[5..]),
         Some("kbench") if args.len() >= 5 && args[1] == "mxfp4-gemv" => cmd_kbench_mxfp4(&args[2..], false),
         Some("kbench") if args.len() >= 5 && args[1] == "mxfp4-mma" => cmd_kbench_mxfp4(&args[2..], true),
@@ -538,6 +539,44 @@ fn cmd_dump_final_logits(path: &str, manifest: &str, out: &str) -> Result<bool> 
         }
         println!("{name}: {} lengths up to {}", lens.len(), lens[lens.len() - 1]);
     }
+    Ok(true)
+}
+
+/// `ls-diag <model> <first> <ids...|@file>`: loop self-speculation diagnosis (`ASTRAL_LS_DIAG=1`;
+/// without it the per-pass picks are empty, the control that the diagnosis leaves the
+/// full-depth picks unchanged), teacher-forced. Prefills the first `first` tokens, then feeds the rest one decode
+/// step at a time; per step one JSON line with the position, the full-depth greedy pick, the pick
+/// after each earlier pass (coda and head on that pass's output, real coda history) and the next
+/// token of the sequence (`ASTRAL_LS_GEN=n`: then n more steps fed with the full-depth picks).
+/// Ends with the agreement of each pass's pick with the full-depth one.
+fn cmd_ls_diag(path: &str, first: &str, ids: &[String]) -> Result<bool> {
+    let bad = |m: String| astral_core::AstralError::Invalid(m);
+    let prompt = read_ids(ids)?;
+    let first: usize = first.parse().ok().filter(|&f: &usize| f >= 1 && f < prompt.len()).ok_or_else(|| bad(format!("first must be in 1..{}", prompt.len())))?;
+    // ASTRAL_LS_GEN=n: after the sequence, n more steps on the full-depth greedy picks.
+    let extra: usize = std::env::var("ASTRAL_LS_GEN").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+    let mut s = load_session(path, (prompt.len() + extra + 8) as u32)?;
+    s.prefill(&prompt[..first])?;
+    let (mut n, mut agree) = (0usize, Vec::<usize>::new());
+    let t0 = std::time::Instant::now();
+    let (mut t, mut tok) = (first, prompt[first]);
+    loop {
+        let r = s.step(tok)?;
+        let picks = s.ls_picks()?.unwrap_or_default();
+        agree.resize(picks.len(), 0);
+        for (a, &p) in agree.iter_mut().zip(&picks) {
+            *a += usize::from(p == r);
+        }
+        n += 1;
+        let next = if t + 1 < prompt.len() { Some(prompt[t + 1]) } else if t + 1 < prompt.len() + extra { Some(r) } else { None };
+        println!("{{\"pos\":{t},\"final\":{r},\"picks\":{picks:?},\"next\":{},\"generated\":{}}}", next.map_or("null".into(), |v| v.to_string()), t >= prompt.len());
+        match next {
+            Some(x) => (t, tok) = (t + 1, x),
+            None => break,
+        }
+    }
+    let rates: Vec<String> = agree.iter().map(|&a| format!("{:.4}", a as f64 / n.max(1) as f64)).collect();
+    eprintln!("ls-diag: {n} steps in {:.1} s; agreement with the full depth by pass: [{}]", t0.elapsed().as_secs_f64(), rates.join(", "));
     Ok(true)
 }
 

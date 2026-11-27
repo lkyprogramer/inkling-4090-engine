@@ -193,7 +193,7 @@ fn mm_small(gemv: &Gemv, st: &Stream, m: &GemvMatrix, x: &QAct, rows: u32, y: &m
     gemv.launch_items(st, m, x, rows, y, rows, items, 1)
 }
 
-/// One draft K or V cache: f32, or f16 with `ASTRAL_DRAFT_KV_F16=1`. Sliding-window layers keep
+/// One draft K or V cache: f16, or f32 with `ASTRAL_DRAFT_KV_F32=1`. Sliding-window layers keep
 /// only a ring of rows (`kv_rows`); the global layer keeps every position.
 struct KvBuf {
     buf: DeviceBuffer<u16>,
@@ -234,8 +234,10 @@ fn kv_ring() -> bool {
     std::env::var_os("ASTRAL_DRAFT_KV_FULL").is_none()
 }
 
+/// FP16 draft K/V by default (same drafts as f32 on the T21 workloads, at 16K and at 100K);
+/// `ASTRAL_DRAFT_KV_F32=1` keeps f32.
 fn kv_half() -> bool {
-    std::env::var_os("ASTRAL_DRAFT_KV_F16").is_some()
+    std::env::var_os("ASTRAL_DRAFT_KV_F32").is_none()
 }
 
 /// Dense rows `(x0 + r, r)` for `r < rows`.
