@@ -858,6 +858,10 @@ impl Session {
         sp.table.copy_from_slice(&t)?;
         sp.entries = (t.len() / 3) as u32;
         sp.max_ch = kvw.max(d) as u32;
+        if let Some(p) = std::env::var_os("ASTRAL_SPEC_LOG") {
+            let f = std::fs::OpenOptions::new().create(true).append(true).open(&p).map_err(|e| bad(format!("ASTRAL_SPEC_LOG {}: {e}", p.to_string_lossy())))?;
+            sp.log = Some(std::io::BufWriter::new(f));
+        }
         eprintln!("dspark draft: {:.2} GB, k = {k}", sp.w.bytes as f64 / 1e9);
         self.spec = Some(Box::new(sp));
         Ok(())
@@ -992,6 +996,10 @@ impl Session {
         let o = sp.out.to_vec()?;
         let ms = t0.elapsed().as_secs_f64() * 1e3;
         let c = (o[0].max(1) as usize).min(kv + 1);
+        if let Some(log) = sp.log.as_mut() {
+            use std::io::Write;
+            writeln!(log, "{{\"pos\":{},\"k\":{kv},\"acc\":{},\"ms\":{ms:.4}}}", *pos, c - 1).and_then(|()| log.flush()).map_err(|e| bad(format!("ASTRAL_SPEC_LOG: {e}")))?;
+        }
         *pos += c as u32;
         sp.stats.rounds += 1;
         sp.stats.accepted += (c - 1) as u64;

@@ -25,6 +25,33 @@ fn need(what: &str, have: usize, want: usize) -> Result<()> {
     Ok(())
 }
 
+/// One draft K or V cache as the kernels see it: `rows` rows of `stride` values, f16 when `half`
+/// else f32, in `bytes` of device memory at `ptr`. With `ring` (sliding-window layers) a
+/// position's row is `position % rows`, else the position itself (clamped to `rows - 1`).
+#[derive(Clone, Copy)]
+pub struct KvRef {
+    pub ptr: DevicePtr,
+    pub bytes: usize,
+    pub rows: u32,
+    pub stride: u32,
+    pub ring: bool,
+    pub half: bool,
+}
+
+impl KvRef {
+    fn check(&self, what: &str) -> Result<()> {
+        need(what, self.bytes, self.rows as usize * self.stride as usize * if self.half { 2 } else { 4 })
+    }
+}
+
+/// Destination of [`DsparkOps::head_prep`].
+pub enum HeadDst<'a> {
+    /// Row `t` of a f32 buffer with row stride `stride`.
+    Rows { buf: &'a mut dyn DevMut<f32>, stride: u32 },
+    /// The token's position in a draft KV cache.
+    Cache(KvRef),
+}
+
 /// Where a kernel reads a position (or row) from: `ptr[idx]` on the device.
 #[derive(Clone, Copy)]
 pub struct DevIndex {
@@ -162,35 +189,42 @@ impl DsparkOps {
         Self::go(&self.mix4, s, LaunchConfig { grid: (dim.div_ceil(256), rows, 1), block: (256, 1, 1), shared_mem_bytes: 0 }, &mut p)
     }
 
-    /// Per (token, head) of 128 values: optional RMSNorm (`w`), optional neox RoPE at
-    /// `pos + t`, written to `dst` row `t` or, `to_cache`, row = position (of `capacity`).
+    /// Per (token, head) of 128 values at `src[t * src_stride + h * 128]`: optional RMSNorm with
+    /// weight `w`, optional neox RoPE at position `pos + t`, written to `dst`: row `t` of a f32
+    /// buffer, or the position's row of a draft KV cache.
     #[allow(clippy::too_many_arguments)]
     pub fn head_prep(
         &self,
         s: &Stream,
         src: DevicePtr,
         src_stride: u32,
-        dst: &mut dyn DevMut<f32>,
-        dst_stride: u32,
+        dst: HeadDst<'_>,
         w: Option<&dyn Dev<f32>>,
         rope: bool,
         pos: DevIndex,
-        to_cache: bool,
-        capacity: u32,
         ntok: u32,
         heads: u32,
         theta: f32,
         eps: f32,
     ) -> Result<()> {
-        if ntok == 0 || heads == 0 || capacity == 0 || heads * HEAD_DIM > dst_stride {
-            return Err(invalid(format!("head_prep: {ntok} tokens x {heads} heads, dst stride {dst_stride}")));
+        let (mut pd, mut ds, mut tc, mut rows, mut ring, mut half) = match &dst {
+            HeadDst::Rows { buf, stride } => {
+                need("head_prep dst", buf.dlen(), ntok as usize * *stride as usize)?;
+                (buf.dptr(), *stride, 0u32, ntok, 0u32, 0u32)
+            }
+            HeadDst::Cache(c) => {
+                c.check("head_prep cache")?;
+                (c.ptr, c.stride, 1, c.rows, c.ring as u32, c.half as u32)
+            }
+        };
+        if ntok == 0 || heads == 0 || rows == 0 || heads * HEAD_DIM > ds {
+            return Err(invalid(format!("head_prep: {ntok} tokens x {heads} heads, dst stride {ds}")));
         }
-        need("head_prep dst", dst.dlen(), (if to_cache { capacity } else { ntok }) as usize * dst_stride as usize)?;
         if let Some(w) = w {
             need("head_prep w", w.dlen(), HEAD_DIM as usize)?;
         }
-        let (mut ps, mut ss, mut pd, mut ds, mut pw) = (src, src_stride, dst.dptr(), dst_stride, w.map_or(0, |w| w.dptr()));
-        let (mut r, mut pp, mut pi, mut tc, mut cap, mut th, mut e) = (rope as u32, pos.ptr, pos.idx, to_cache as u32, capacity, theta, eps);
+        let (mut ps, mut ss, mut pw) = (src, src_stride, w.map_or(0, |w| w.dptr()));
+        let (mut r, mut pp, mut pi, mut th, mut e) = (rope as u32, pos.ptr, pos.idx, theta, eps);
         let mut p = [
             param(&mut ps),
             param(&mut ss),
@@ -201,23 +235,26 @@ impl DsparkOps {
             param(&mut pp),
             param(&mut pi),
             param(&mut tc),
-            param(&mut cap),
+            param(&mut rows),
             param(&mut th),
             param(&mut e),
+            param(&mut ring),
+            param(&mut half),
         ];
         Self::go(&self.head_prep, s, LaunchConfig { grid: (ntok, heads, 1), block: (64, 1, 1), shared_mem_bytes: 0 }, &mut p)
     }
 
     /// Draft block attention: `nblk` queries (row stride `q_stride`) over cached keys
-    /// `[L - window, L)`, `L = pos + nblk` (window 0 = all). `out` is `[nblk][heads * 128]`.
+    /// `[L - window, L)`, `L = min(pos + nblk, capacity)` (window 0 = all). `kc` and `vc` share one
+    /// layout. `out` is `[nblk][heads * 128]`.
     #[allow(clippy::too_many_arguments)]
     pub fn attn(
         &self,
         s: &Stream,
         q: DevicePtr,
         q_stride: u32,
-        kc: &dyn Dev<f32>,
-        vc: &dyn Dev<f32>,
+        kc: KvRef,
+        vc: KvRef,
         out: &mut dyn DevMut<f32>,
         pos: DevIndex,
         nblk: u32,
@@ -229,12 +266,20 @@ impl DsparkOps {
         if kv_heads == 0 || !heads.is_multiple_of(kv_heads) || heads / kv_heads > MAX_GROUP || nblk == 0 {
             return Err(invalid(format!("dspark attn: {heads} heads over {kv_heads} KV heads")));
         }
-        let kvw = (kv_heads * HEAD_DIM) as usize;
-        need("dspark attn kc", kc.dlen(), capacity as usize * kvw)?;
-        need("dspark attn vc", vc.dlen(), capacity as usize * kvw)?;
+        let kvw = kv_heads * HEAD_DIM;
+        if kc.stride != kvw || vc.stride != kvw || kc.rows != vc.rows || kc.ring != vc.ring || kc.half != vc.half {
+            return Err(invalid("dspark attn: K and V caches differ in layout or stride".into()));
+        }
+        // Without a ring the rows are positions; with one it must hold the whole window.
+        if (!kc.ring && kc.rows < capacity) || (kc.ring && (window == 0 || kc.rows < window)) {
+            return Err(invalid(format!("dspark attn: {} cache rows (ring {}) for capacity {capacity}, window {window}", kc.rows, kc.ring)));
+        }
+        kc.check("dspark attn kc")?;
+        vc.check("dspark attn vc")?;
         need("dspark attn out", out.dlen(), (nblk * heads * HEAD_DIM) as usize)?;
-        let (mut pq, mut qs, mut pk, mut pv, mut po, mut pp, mut pi) = (q, q_stride, kc.dptr(), vc.dptr(), out.dptr(), pos.ptr, pos.idx);
+        let (mut pq, mut qs, mut pk, mut pv, mut po, mut pp, mut pi) = (q, q_stride, kc.ptr, vc.ptr, out.dptr(), pos.ptr, pos.idx);
         let (mut nb, mut h, mut kh, mut win, mut sc, mut cap) = (nblk, heads, kv_heads, window, 1.0f32 / (HEAD_DIM as f32).sqrt(), capacity);
+        let (mut rows, mut ring, mut half) = (kc.rows, kc.ring as u32, kc.half as u32);
         let mut p = [
             param(&mut pq),
             param(&mut qs),
@@ -249,6 +294,9 @@ impl DsparkOps {
             param(&mut win),
             param(&mut sc),
             param(&mut cap),
+            param(&mut rows),
+            param(&mut ring),
+            param(&mut half),
         ];
         Self::go(&self.attn, s, LaunchConfig { grid: (nblk, kv_heads, 1), block: (32 * 16, 1, 1), shared_mem_bytes: 0 }, &mut p)
     }

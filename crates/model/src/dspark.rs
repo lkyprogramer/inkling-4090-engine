@@ -18,7 +18,7 @@
 use crate::inkling::{DevWork, Weights as TargetWeights};
 use astral_core::{AstralError, Result};
 use astral_gpu::{Context, Dev, DeviceBuffer, GraphExec, Stream};
-use astral_kernels::dspark::{DevIndex, DsparkOps, HEAD_DIM};
+use astral_kernels::dspark::{DevIndex, DsparkOps, HeadDst, KvRef, HEAD_DIM};
 use astral_kernels::inkling::InklingOps;
 use astral_kernels::ops::{Gemv, GemvMatrix, GemvType, MmaWork, MultiItem, QAct, QItem};
 use astral_loader::safetensors::Safetensors;
@@ -191,6 +191,51 @@ fn mm_small(gemv: &Gemv, st: &Stream, m: &GemvMatrix, x: &QAct, rows: u32, y: &m
     }
     let [MultiItem { y, .. }] = it;
     gemv.launch_items(st, m, x, rows, y, rows, items, 1)
+}
+
+/// One draft K or V cache: f32, or f16 with `ASTRAL_DRAFT_KV_F16=1`. Sliding-window layers keep
+/// only a ring of rows (`kv_rows`); the global layer keeps every position.
+struct KvBuf {
+    buf: DeviceBuffer<u16>,
+    rows: u32,
+    stride: u32,
+    ring: bool,
+    half: bool,
+}
+
+impl KvBuf {
+    /// `(rows, ring)` from [`kv_rows`].
+    fn new(ctx: &Arc<Context>, (rows, ring): (usize, bool), stride: usize, half: bool) -> Result<Self> {
+        let buf = DeviceBuffer::zeroed(ctx, rows * stride * if half { 1 } else { 2 })?;
+        Ok(Self { buf, rows: rows as u32, stride: stride as u32, ring, half })
+    }
+
+    fn r(&self) -> KvRef {
+        KvRef { ptr: self.buf.device_ptr(), bytes: 2 * self.buf.len(), rows: self.rows, stride: self.stride, ring: self.ring, half: self.half }
+    }
+}
+
+/// Cache rows of draft layer `l` and whether they form a ring: all `dcap` positions for a global
+/// layer; for a sliding-window layer a ring that holds the block's window (`window + block` keys,
+/// what the attention reads) and one whole context write (`tmax` rows, so no two rows of one
+/// write share a slot), when that is smaller than `dcap`. `ASTRAL_DRAFT_KV_FULL=1` keeps every
+/// position for all layers (the ring changes addressing only: same keys, same order,
+/// bit-identical drafts).
+fn kv_rows(c: &DraftConfig, l: usize, dcap: u32, tmax: usize) -> (usize, bool) {
+    let ring = (c.window as usize + c.block).max(tmax);
+    if c.local[l] && kv_ring() && ring < dcap as usize {
+        (ring, true)
+    } else {
+        (dcap as usize, false)
+    }
+}
+
+fn kv_ring() -> bool {
+    std::env::var_os("ASTRAL_DRAFT_KV_FULL").is_none()
+}
+
+fn kv_half() -> bool {
+    std::env::var_os("ASTRAL_DRAFT_KV_F16").is_some()
 }
 
 /// Dense rows `(x0 + r, r)` for `r < rows`.
@@ -497,8 +542,9 @@ pub struct Spec {
     pub(crate) next_all: DeviceBuffer<i32>,
     pub(crate) out: DeviceBuffer<i32>,
     pub(crate) info: DeviceBuffer<i32>,
-    kc: Vec<DeviceBuffer<f32>>,
-    vc: Vec<DeviceBuffer<f32>>,
+    /// Draft K / V caches per layer (see [`KvBuf`]).
+    kc: Vec<KvBuf>,
+    vc: Vec<KvBuf>,
     xin: DeviceBuffer<f32>,
     res: DeviceBuffer<f32>,
     hid: DeviceBuffer<f32>,
@@ -545,6 +591,9 @@ pub struct Spec {
     /// Rows of the last prefill chunk (its last row is the newest committed token's features).
     pub(crate) last_rows: usize,
     pub stats: SpecStats,
+    /// Diagnostics: one JSON line per round (`ASTRAL_SPEC_LOG=<file>`, appended): context
+    /// position before the round, drafts verified, drafts accepted, wall time.
+    pub(crate) log: Option<std::io::BufWriter<std::fs::File>>,
 }
 
 impl Spec {
@@ -583,8 +632,8 @@ impl Spec {
             next_all: DeviceBuffer::zeroed(ctx, vmax.max(8))?,
             out: DeviceBuffer::zeroed(ctx, vmax + 2)?,
             info: DeviceBuffer::zeroed(ctx, 4)?,
-            kc: (0..c.layers).map(|_| z(dcap as usize * kvw)).collect::<Result<_>>()?,
-            vc: (0..c.layers).map(|_| z(dcap as usize * kvw)).collect::<Result<_>>()?,
+            kc: (0..c.layers).map(|l| KvBuf::new(ctx, kv_rows(&c, l, dcap, tmax), kvw, kv_half())).collect::<Result<_>>()?,
+            vc: (0..c.layers).map(|l| KvBuf::new(ctx, kv_rows(&c, l, dcap, tmax), kvw, kv_half())).collect::<Result<_>>()?,
             xin: DeviceBuffer::from_slice(ctx, &xin)?,
             res: z(nb * d)?,
             hid: z(nb * d)?,
@@ -624,6 +673,7 @@ impl Spec {
             forced: None,
             forced_host: Vec::new(),
             stats: SpecStats::default(),
+            log: None,
             ops,
             w,
         })
@@ -648,8 +698,8 @@ impl Spec {
                 gemv.launch_mma(st, &lw.wkv_ctx, &self.qa_d, rows as u32, &mut self.kvctx, rows as u32, &wk.items, wk.n_items, &wk.xidx, &wk.yidx, wk.idx_len)?;
             }
             let kp = self.kvctx.dptr();
-            self.ops.head_prep(st, kp, 2 * kvw, &mut self.kc[l], kvw, Some(&lw.k_norm_ctx), true, pos, true, self.capacity, rows as u32, kvh, c.theta, c.eps)?;
-            self.ops.head_prep(st, kp + 4 * kvw as u64, 2 * kvw, &mut self.vc[l], kvw, None, false, pos, true, self.capacity, rows as u32, kvh, c.theta, c.eps)?;
+            self.ops.head_prep(st, kp, 2 * kvw, HeadDst::Cache(self.kc[l].r()), Some(&lw.k_norm_ctx), true, pos, rows as u32, kvh, c.theta, c.eps)?;
+            self.ops.head_prep(st, kp + 4 * kvw as u64, 2 * kvw, HeadDst::Cache(self.vc[l].r()), None, false, pos, rows as u32, kvh, c.theta, c.eps)?;
         }
         Ok(())
     }
@@ -682,11 +732,11 @@ impl Spec {
             self.ops.add_rms_q8(st, x, nb * d, add, Some(self.res.dptr()), &lw.in_ln, None, Some(&mut self.qa_d), nbu, du, c.eps)?;
             mm_small(gemv, st, &lw.wqkv, &self.qa_d, nbu, &mut self.qkv, blk)?;
             let qp = self.qkv.dptr();
-            self.ops.head_prep(st, qp, qkvw, &mut self.qkv, qkvw, Some(&lw.q_norm), true, start, false, self.capacity, nbu, heads, c.theta, c.eps)?;
-            self.ops.head_prep(st, qp + 4 * qw as u64, qkvw, &mut self.kc[l], kvw, Some(&lw.k_norm), true, start, true, self.capacity, nbu, kvh, c.theta, c.eps)?;
-            self.ops.head_prep(st, qp + 4 * (qw + kvw) as u64, qkvw, &mut self.vc[l], kvw, None, false, start, true, self.capacity, nbu, kvh, c.theta, c.eps)?;
+            self.ops.head_prep(st, qp, qkvw, HeadDst::Rows { buf: &mut self.qkv, stride: qkvw }, Some(&lw.q_norm), true, start, nbu, heads, c.theta, c.eps)?;
+            self.ops.head_prep(st, qp + 4 * qw as u64, qkvw, HeadDst::Cache(self.kc[l].r()), Some(&lw.k_norm), true, start, nbu, kvh, c.theta, c.eps)?;
+            self.ops.head_prep(st, qp + 4 * (qw + kvw) as u64, qkvw, HeadDst::Cache(self.vc[l].r()), None, false, start, nbu, kvh, c.theta, c.eps)?;
             let window = if c.local[l] { c.window + nbu } else { 0 };
-            self.ops.attn(st, qp, qkvw, &self.kc[l], &self.vc[l], &mut self.att, start, nbu, heads, kvh, window, self.capacity)?;
+            self.ops.attn(st, qp, qkvw, self.kc[l].r(), self.vc[l].r(), &mut self.att, start, nbu, heads, kvh, window, self.capacity)?;
             self.ops.quant(st, &self.att, qw, nbu, &mut self.qa_o)?;
             mm_small(gemv, st, &lw.wo, &self.qa_o, nbu, &mut self.tmp, blk)?;
             self.ops.add_rms_q8(st, self.res.dptr(), nb * d, Some(&self.tmp), Some(self.res.dptr()), &lw.post_ln, None, Some(&mut self.qa_d), nbu, du, c.eps)?;

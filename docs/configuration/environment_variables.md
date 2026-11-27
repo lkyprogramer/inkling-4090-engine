@@ -21,7 +21,7 @@ The defaults are the fastest measured configuration. The variables below exist f
 
 ## Speculative decoding
 
-See [speculative decoding](../features/speculative_decoding.md#tuning): `ASTRAL_SPEC_FIXED`, `ASTRAL_SPEC_KMIN`, `ASTRAL_SPEC_POLICY`, `ASTRAL_SPEC_GROW`, `ASTRAL_SPEC_SHRINK`, `ASTRAL_DRAFT_HEAD_FP4`.
+See [speculative decoding](../features/speculative_decoding.md#tuning): `ASTRAL_SPEC_FIXED`, `ASTRAL_SPEC_KMIN`, `ASTRAL_SPEC_POLICY`, `ASTRAL_SPEC_GROW`, `ASTRAL_SPEC_SHRINK`, `ASTRAL_SPEC_LOG`, `ASTRAL_DRAFT_HEAD_FP4`, `ASTRAL_DRAFT_KV_F16`, `ASTRAL_DRAFT_KV_FULL`.
 
 ## Fusion switches
 

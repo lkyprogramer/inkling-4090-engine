@@ -8,6 +8,8 @@ Changes in this fork on top of upstream `49a0a2b`.
 
 ### Added
 
+- DSpark draft K/V: the two sliding-window draft layers keep a ring of `max(window + block, tmax)` rows instead of every position (bit-identical drafts; `ASTRAL_DRAFT_KV_FULL=1` keeps full rows), and `ASTRAL_DRAFT_KV_F16=1` stores the draft K/V in FP16. On an RTX 4090 the largest DSpark context goes from 73,728 to 106,496 tokens (114,688 with FP16).
+- `ASTRAL_SPEC_LOG=<file>`: one JSON line per DSpark round (position, drafts verified, accepted, wall time).
 - Contexts up to 132,096 tokens (128K + 1,024) for Inkling 2 Mini. Sliding-window slots keep a ring of `n_swa + max(tmax, 8)` rows (rounded up to 64) instead of the full capacity, the attention kernels take the row count, and the 8,192 limits are gone except for the simple decode kernel. `ASTRAL_NO_SWA_RING=1` keeps full-length rows for comparison. On an RTX 4090: bit-identical to the previous build within 8K, 128K prompt in 31.8 s and decode at 73.7 tok/s; see [docs/hardware/rtx4090.md](docs/hardware/rtx4090.md#long-context).
 - `ASTRAL_TRACE_PREFILL=1` for `astral trace` (prefill all but the last token, then the probed step) and `ASTRAL_DUMP_KINDS` for `dump-final-logits`.
 - `ASTRAL_PASSES=R` (1–10) overrides the loop pass count of Inkling 2 Mini checkpoints; the attention-residual bank is sized from the pass count, and the native checkpoint loader passes `loop_config.is_varloop` on as `loop.varying`. Loads and runs the varloop research checkpoint at 1–10 passes; see [docs/hardware/rtx4090.md](docs/hardware/rtx4090.md#pass-count-research).
@@ -22,6 +24,7 @@ Changes in this fork on top of upstream `49a0a2b`.
 
 ### Changed
 
+- `spec-generate` reports acceptance as accepted / verified drafts (it divided by rounds × k, which undercounts with the adaptive policy).
 - On the RTX 4090 (sm_89) the Q8_0 products of 2–8-token passes (DSpark verify and draft, including the LM head) run with dp4a instead of int8 tensor cores: DSpark 173.9 → 206.3 tok/s on the 32-prompt benchmark. Other GPUs keep tensor cores; `ASTRAL_SMALL_DP4A=1` or `ASTRAL_SMALL_TC=1` forces either.
 - Decode is back on tensor cores on the RTX 4090. `3f5a49d` had moved it to dp4a (+10%), but decode then drifts further from prefill than the hold-out check allows (num-3, set B, step vs decode: largest KL 0.082 against 0.023). `ASTRAL_DECODE_DP4A=1` selects dp4a; `ASTRAL_DECODE_MMA` is gone.
 

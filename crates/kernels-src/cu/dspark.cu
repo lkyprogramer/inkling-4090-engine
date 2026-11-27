@@ -5,7 +5,8 @@
 // the verify-side bookkeeping. The draft runs a block of `nblk` tokens (anchor + masks) through
 // a small dense transformer that attends to K/V built from mixed target hidden states, then a
 // recurrent Markov head picks the drafted tokens one by one. All activations are f32; the
-// draft's KV cache is f32 `[capacity][kv_heads * 128]`.
+// draft's KV cache is `[rows][kv_heads * 128]`, f32 or f16 (`half`), with rows indexed by
+// position, or by position modulo `rows` for the sliding-window layers (`ring`).
 // Parameter lists are mirrored by the launchers in crates/kernels/src/dspark.rs.
 
 #include <cuda_fp16.h>
@@ -109,10 +110,12 @@ extern "C" __global__ void astral_dsp_mix4(const float* __restrict__ feat, u64 t
 
 // Per (token t, head h) of 128 values at src[t * src_stride + h * 128]: optional RMSNorm with
 // weight w, optional neox RoPE at position pos_p[pos_idx] + t (theta), written to dst row t
-// (or row = position when to_cache) at column h * 128. Grid (ntok, heads), block 64.
+// (or, when to_cache, row = position clamped to rows - 1, or position % rows when ring; f16 when
+// half) at column h * 128. Grid (ntok, heads), block 64.
 extern "C" __global__ void __launch_bounds__(64) astral_dsp_head_prep(const float* src, unsigned src_stride, float* dst, unsigned dst_stride,
                                                                       const float* __restrict__ w, unsigned rope, const int* __restrict__ pos_p,
-                                                                      unsigned pos_idx, unsigned to_cache, unsigned capacity, float theta, float eps) { PDL_WAIT();
+                                                                      unsigned pos_idx, unsigned to_cache, unsigned rows, float theta, float eps, unsigned ring,
+                                                                      unsigned half) { PDL_WAIT();
     const unsigned t = blockIdx.x, h = blockIdx.y, i = threadIdx.x;
     const float* s = src + (u64)t * src_stride + h * DSP_HD;
     float x1 = s[i], x2 = s[i + 64];
@@ -130,20 +133,29 @@ extern "C" __global__ void __launch_bounds__(64) astral_dsp_head_prep(const floa
         x1 = o1;
         x2 = o2;
     }
-    const u64 row = to_cache ? (u64)min((unsigned)max(pos, 0), capacity - 1u) : (u64)t;
+    const unsigned p = (unsigned)max(pos, 0);
+    const u64 row = to_cache ? (u64)(ring ? p % rows : min(p, rows - 1u)) : (u64)t;
+    if (half) {
+        __half* d = reinterpret_cast<__half*>(dst) + row * dst_stride + h * DSP_HD;
+        d[i] = __float2half_rn(x1);
+        d[i + 64] = __float2half_rn(x2);
+        return;
+    }
     float* d = dst + row * dst_stride + h * DSP_HD;
     d[i] = x1;
     d[i + 64] = x2;
 }
 
 // Block attention of the draft: query t (of nblk) of KV head kh, for its `g` query heads, over
-// keys [lo, L) where L = pos_p[pos_idx] + nblk (the block's end) and lo = L - window (0 = all).
-// No causal mask inside the block. Grid (nblk, kv_heads), block DSP_ATT_WARPS warps (split the keys).
+// keys [lo, L) where L = pos_p[pos_idx] + nblk (the block's end, at most capacity) and
+// lo = L - window (0 = all); key j is cache row j, or j % rows when ring (f16 when half). The
+// keys are visited in the same order either way. No causal mask inside the block. Grid (nblk, kv_heads), block DSP_ATT_WARPS warps (split the keys).
 #define DSP_ATT_WARPS 16
 extern "C" __global__ void __launch_bounds__(32 * DSP_ATT_WARPS) astral_dsp_attn(const float* __restrict__ q, unsigned q_stride, const float* __restrict__ kc,
                                                                   const float* __restrict__ vc, float* __restrict__ out, const int* __restrict__ pos_p,
                                                                   unsigned pos_idx, unsigned nblk, unsigned heads, unsigned kv_heads,
-                                                                  unsigned window, float scale, unsigned capacity) { PDL_WAIT();
+                                                                  unsigned window, float scale, unsigned capacity, unsigned rows,
+                                                                  unsigned ring, unsigned half) { PDL_WAIT();
     const unsigned t = blockIdx.x, kh = blockIdx.y, lane = threadIdx.x & 31u, warp = threadIdx.x >> 5;
     const unsigned g = heads / kv_heads;
     const int L = min(pos_p[pos_idx] + (int)nblk, (int)capacity);
@@ -161,9 +173,19 @@ extern "C" __global__ void __launch_bounds__(32 * DSP_ATT_WARPS) astral_dsp_attn
         }
     }
     for (int key = lo + (int)warp; key < L; key += DSP_ATT_WARPS) {
-        const u64 off = (u64)key * kvw + kh * DSP_HD + lane * 4;
-        const float4 k = *reinterpret_cast<const float4*>(kc + off);
-        const float4 v = *reinterpret_cast<const float4*>(vc + off);
+        const u64 off = (u64)(ring ? (unsigned)key % rows : (unsigned)key) * kvw + kh * DSP_HD + lane * 4;
+        float4 k, v;
+        if (half) {
+            const uint2 kr = *reinterpret_cast<const uint2*>(reinterpret_cast<const __half*>(kc) + off);
+            const uint2 vr = *reinterpret_cast<const uint2*>(reinterpret_cast<const __half*>(vc) + off);
+            const float2 k01 = __half22float2(*reinterpret_cast<const __half2*>(&kr.x)), k23 = __half22float2(*reinterpret_cast<const __half2*>(&kr.y));
+            const float2 v01 = __half22float2(*reinterpret_cast<const __half2*>(&vr.x)), v23 = __half22float2(*reinterpret_cast<const __half2*>(&vr.y));
+            k = make_float4(k01.x, k01.y, k23.x, k23.y);
+            v = make_float4(v01.x, v01.y, v23.x, v23.y);
+        } else {
+            k = *reinterpret_cast<const float4*>(kc + off);
+            v = *reinterpret_cast<const float4*>(vc + off);
+        }
 #pragma unroll
         for (unsigned j = 0; j < DSP_MAXG; j++) {
             if (j >= g) break;

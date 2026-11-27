@@ -780,17 +780,17 @@ fn cmd_spec_generate(path: &str, dir: &str, k: &str, n: &str, ids: &[String]) ->
         spec_out = s.spec_generate(&prompt, n)?;
         let total = t1.elapsed().as_secs_f64();
         let st = s.spec_stats().unwrap_or_default();
-        let (rounds, acc) = (st.rounds - before.rounds, st.accepted - before.accepted);
+        let (rounds, acc, drafted) = (st.rounds - before.rounds, st.accepted - before.accepted, st.drafted - before.drafted);
         let decode = (total - tp).max(1e-9);
         println!(
-            "run {rep}: prefill {} tok {:.1} ms; decode {} tok in {:.3} s = {:.1} tok/s; {rounds} rounds, {:.2} tokens/round, acceptance {:.1}% of {k} drafts",
+            "run {rep}: prefill {} tok {:.1} ms; decode {} tok in {:.3} s = {:.1} tok/s; {rounds} rounds, {:.2} tokens/round, acceptance {:.1}% of {drafted} verified drafts",
             prompt.len(),
             tp * 1e3,
             spec_out.len() - 1,
             decode,
             (spec_out.len() - 1) as f64 / decode,
             (spec_out.len() - 1) as f64 / rounds.max(1) as f64,
-            100.0 * acc as f64 / (rounds.max(1) * k as u64) as f64
+            100.0 * acc as f64 / drafted.max(1) as f64
         );
         let _ = first;
     }
