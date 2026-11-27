@@ -608,7 +608,8 @@ impl Gemv {
         Ok(())
     }
 
-    /// Quantise `slots` vectors of `out.k` values (row `s` at `x[s * x_stride]`) into `out`.
+    /// Quantise `slots` vectors of `out.k` values (row `s` at `x[s * x_stride]`) into `out`: int8
+    /// values and per-32 scales, and the f16 copy when `out` keeps one ([`QAct::with_f16`]).
     pub fn quantize(&self, stream: &Stream, x: &impl Dev<f32>, x_stride: u32, slots: u32, out: &mut QAct) -> Result<()> {
         if slots == 0 || slots > out.max_slots {
             return Err(invalid(format!("quantize: {slots} slots, buffer holds {}", out.max_slots)));
@@ -618,13 +619,13 @@ impl Gemv {
             return Err(invalid(format!("quantize: x has {} values, need {need}", x.dlen())));
         }
         let total = slots * out.k / 32;
-        let (mut px, mut pq, mut pd, mut k, mut xs, mut tb) = (x.dptr(), out.q.device_ptr(), out.d.device_ptr(), out.k, x_stride, total);
-        let mut p = [param(&mut px), param(&mut pq), param(&mut pd), param(&mut k), param(&mut xs), param(&mut tb)];
+        let (mut pq, mut pd, mut ph) = out.planes_for(slots)?;
+        let (mut px, mut k, mut xs, mut tb) = (x.dptr(), out.k, x_stride, total);
+        let mut p = [param(&mut px), param(&mut pq), param(&mut pd), param(&mut ph), param(&mut k), param(&mut xs), param(&mut tb)];
         let cfg = LaunchConfig { grid: (total.div_ceil(8), 1, 1), block: (256, 1, 1), shared_mem_bytes: 0 };
-        // SAFETY: params match astral_quantize_x_q8; x and the output planes were size-checked.
-        unsafe { self.quant.launch(cfg, stream, &mut p) }?;
-        out.slots = slots;
-        Ok(())
+        // SAFETY: params match astral_quantize_x_q8; x and the output planes (f16 included, when
+        // allocated: max_slots rows of k) were size-checked.
+        unsafe { self.quant.launch(cfg, stream, &mut p) }
     }
 
     /// Grouped int8 GEMM (prefill): for each of the first `n_items` items in `items` (words from

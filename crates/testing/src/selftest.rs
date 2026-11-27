@@ -381,9 +381,12 @@ fn random_ggml(rng: &mut Rng, ty: GemvType, n_mats: usize, n: usize, k: usize) -
     }
 }
 
-/// Deterministic split-K (prefill GEMMs): the grouped tensor-core GEMM on shapes small enough to
-/// split K, run twice with the split workspace (bit-identical) and against the atomic-add path;
-/// and the prefill loop-controller projection (`ctrl_t`) run twice (bit-identical).
+/// Deterministic split-K (prefill GEMMs). The grouped tensor-core GEMM reads the f16 activation
+/// plane, so each shape first checks that the inputs reach it: the output is nonzero, matches a
+/// CPU reference on the operands as the kernel rounds them, and a change to one activation moves
+/// only its token's outputs; an unwritten (all-zero) f16 plane must fail those checks. Then the
+/// split workspace runs twice (bit-identical) and against the atomic-add path. Last, the prefill
+/// loop-controller projection (`ctrl_t`) runs twice (bit-identical).
 fn split_k_cases(ctx: &Arc<Context>, out: &mut Vec<CaseResult>) -> Result<()> {
     use astral_kernels::inkling::{InklingOps, CTRL_T_SPLITS};
     use astral_kernels::ops::{MmaWork, QAct};
@@ -397,15 +400,22 @@ fn split_k_cases(ctx: &Arc<Context>, out: &mut Vec<CaseResult>) -> Result<()> {
     let cases: &[(GemvType, usize, usize, usize, usize)] = &[(GemvType::Q8_0, 2304, 3072, 1, 5), (GemvType::Nvfp4, 2304, 1152, 3, 6)];
     for &(ty, n, k, mats, nt) in cases {
         let raw = random_ggml(&mut rng, ty, mats, n, k);
-        let (qs, aux) = match ty {
-            GemvType::Q8_0 => astral_quant::repack_q8_0(&raw)?,
-            _ => astral_quant::repack_nvfp4(&raw)?,
+        let (qs, aux, gt) = match ty {
+            GemvType::Q8_0 => {
+                let (q, a) = astral_quant::repack_q8_0(&raw)?;
+                (q, a, astral_quant::GgmlType::Q8_0)
+            }
+            _ => {
+                let (q, a) = astral_quant::repack_nvfp4(&raw)?;
+                (q, a, astral_quant::GgmlType::Nvfp4)
+            }
         };
         let m = GemvMatrix::upload(ctx, ty, n as u32, k as u32, mats as u32, &qs, &aux, None)?;
-        let x = rng.vec_f32(nt * k, 1.0);
-        let dx = DeviceBuffer::from_slice(ctx, &x)?;
-        let mut qa = QAct::with_f16(ctx, k as u32, nt as u32)?;
-        atomic.quantize(&stream, &dx, k as u32, nt as u32, &mut qa)?;
+        // Signed activations whose magnitude changes by 100x across 32-value blocks.
+        let mut x = rng.vec_f32(nt * k, 1.0);
+        for (i, v) in x.iter_mut().enumerate() {
+            *v *= [0.03f32, 0.3, 1.0, 3.0][(i / 32) % 4];
+        }
         let mut work = MmaWork::default();
         for e in 0..mats as u32 {
             let rows: Vec<(u32, u32)> = (0..nt as u32).filter(|t| t % mats as u32 == e).map(|t| (t, t)).collect();
@@ -413,19 +423,71 @@ fn split_k_cases(ctx: &Arc<Context>, out: &mut Vec<CaseResult>) -> Result<()> {
         }
         let (items, xidx, yidx) = (DeviceBuffer::from_slice(ctx, &work.items)?, DeviceBuffer::from_slice(ctx, &work.xidx)?, DeviceBuffer::from_slice(ctx, &work.yidx)?);
         let (n_items, idx_len) = ((work.items.len() / 3) as u32, work.xidx.len() as u32);
-        let run = |g: &Gemv| -> Result<Vec<f32>> {
+        let quantized = |x: &[f32]| -> Result<QAct> {
+            let dx = DeviceBuffer::from_slice(ctx, x)?;
+            let mut qa = QAct::with_f16(ctx, k as u32, nt as u32)?;
+            atomic.quantize(&stream, &dx, k as u32, nt as u32, &mut qa)?;
+            stream.synchronize()?;
+            Ok(qa)
+        };
+        let run = |g: &Gemv, qa: &QAct| -> Result<Vec<f32>> {
             let mut y = DeviceBuffer::<f32>::zeroed(ctx, nt * n)?;
-            g.launch_mma(&stream, &m, &qa, nt as u32, &mut y, nt as u32, &items, n_items, &xidx, &yidx, idx_len)?;
+            g.launch_mma(&stream, &m, qa, nt as u32, &mut y, nt as u32, &items, n_items, &xidx, &yidx, idx_len)?;
             stream.synchronize()?;
             y.to_vec()
         };
-        let (d1, d2, a1) = (run(&det)?, run(&det)?, run(&atomic)?);
+        // CPU reference on the operands the kernel multiplies: f16 activations and weights
+        // dequantised to f16 (Q8_0: int8 x f16 scale rounded once; NVFP4: E2M1 x E4M3 is exact
+        // in f16), products summed in f64. Token t uses matrix t % mats.
+        let w = astral_quant::dequantize(gt, &raw, mats * n * k)?;
+        let (mut want, mut l1) = (vec![0f32; nt * n], vec![0f64; nt * n]);
+        for t in 0..nt {
+            let e = t % mats;
+            let xr: Vec<f64> = x[t * k..(t + 1) * k].iter().map(|&v| astral_quant::round_through_f16(v) as f64).collect();
+            for r in 0..n {
+                let (mut acc, mut a) = (0f64, 0f64);
+                for (wv, xv) in w[(e * n + r) * k..(e * n + r + 1) * k].iter().zip(&xr) {
+                    let p = astral_quant::round_through_f16(*wv) as f64 * xv;
+                    acc += p;
+                    a += p.abs();
+                }
+                want[t * n + r] = acc as f32;
+                l1[t * n + r] = a;
+            }
+        }
+        let tol = 1e-5;
+        let check = |y: &[f32]| (y.iter().filter(|v| **v != 0.0).count(), err_vs_l1(y, &want, &l1));
+        let case = |what: &str| format!("{ty:?} n{n} k{k} t{nt}: {what}");
+        let qa = quantized(&x)?;
+        let (d1, d2, a1) = (run(&det, &qa)?, run(&det, &qa)?, run(&atomic, &qa)?);
+        let (nz, error) = check(&d1);
+        out.push(exact("gemm_mma3 f16 activations", case("output nonzero"), nz == d1.len(), Some(format!("{nz} of {} nonzero", d1.len()))));
+        out.push(CaseResult { kernel: "gemm_mma3 f16 activations", case: case("vs f16-operand reference"), error, tolerance: tol, pass: error.max_scaled <= tol, info: None });
+        // One activation of the last token changed: that token's outputs move, no other's.
+        let mut x2 = x.clone();
+        x2[(nt - 1) * k + 7] += 0.5;
+        let y2 = run(&det, &quantized(&x2)?)?;
+        let moved = |t: usize| (0..n).filter(|&r| d1[t * n + r].to_bits() != y2[t * n + r].to_bits()).count();
+        let (last, others) = (moved(nt - 1), (0..nt - 1).map(moved).sum::<usize>());
+        out.push(exact(
+            "gemm_mma3 f16 activations",
+            case("one input moves only its token"),
+            last >= n / 2 && others == 0,
+            Some(format!("{last} of {n} outputs of that token, {others} of the others")),
+        ));
+        // Negative control: the f16 plane as allocated (zero), which is what an earlier version
+        // of this test multiplied. Both checks above must reject it.
+        let (bnz, berr) = check(&run(&det, &QAct::with_f16(ctx, k as u32, nt as u32)?)?);
+        out.push(exact(
+            "gemm_mma3 f16 activations",
+            case("negative control: unwritten f16 plane rejected"),
+            bnz != d1.len() && berr.max_scaled > tol,
+            Some(format!("{bnz} nonzero, scaled error {:.2e}", berr.max_scaled)),
+        ));
         let same = d1.iter().zip(&d2).all(|(a, b)| a.to_bits() == b.to_bits());
-        let l1: Vec<f64> = a1.iter().map(|v| (v.abs() as f64).max(1.0)).collect();
-        let rep = err_vs_l1(&d2, &d1, &l1);
-        out.push(CaseResult { kernel: "gemm_mma3 split-K workspace", case: format!("{ty:?} n{n} k{k} t{nt}: repeat bit-identical"), error: rep, tolerance: 0.0, pass: same, info: None });
+        out.push(CaseResult { kernel: "gemm_mma3 split-K workspace", case: case("repeat bit-identical"), error: err_vs_l1(&d2, &d1, &l1), tolerance: 0.0, pass: same, info: None });
         let error = err_vs_l1(&d1, &a1, &l1);
-        out.push(CaseResult { kernel: "gemm_mma3 split-K workspace", case: format!("{ty:?} n{n} k{k} t{nt}: vs atomic adds"), error, tolerance: 1e-5, pass: error.max_scaled <= 1e-5, info: None });
+        out.push(CaseResult { kernel: "gemm_mma3 split-K workspace", case: case("vs atomic adds"), error, tolerance: tol, pass: error.max_scaled <= tol, info: None });
     }
     // Loop-controller projection for a short prefill (dim 2304, rank 64).
     let ops = InklingOps::new(&reg)?;

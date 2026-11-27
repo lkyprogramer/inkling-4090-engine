@@ -139,10 +139,11 @@ GEMV_ENTRY(astral_gemv_nvfp4, 3)
 // NVFP4 weights are multiplied with dp4a: 4 multiply-adds per instruction, 16-byte weight loads
 // issued ahead of use. Mirrored by Gemv::{quantize, launch_q} in crates/kernels/src/ops.rs.
 
-// One warp per 32-value block; total_blocks = slots * K / 32.
+// One warp per 32-value block; total_blocks = slots * K / 32. Also writes the f16 copy of x when
+// xh is non-null (the plane the prefill tensor-core GEMM reads).
 extern "C" __global__ void __launch_bounds__(256) astral_quantize_x_q8(const float* __restrict__ x, signed char* __restrict__ xq,
-                                                                        float* __restrict__ xd, unsigned K, unsigned x_stride,
-                                                                        unsigned total_blocks) { PDL_WAIT();
+                                                                        float* __restrict__ xd, __half* __restrict__ xh, unsigned K,
+                                                                        unsigned x_stride, unsigned total_blocks) { PDL_WAIT();
     const unsigned b = blockIdx.x * (blockDim.x >> 5) + (threadIdx.x >> 5), lane = threadIdx.x & 31u;
     if (b >= total_blocks) return;
     const unsigned per = K >> 5, s = b / per, kb = b - s * per;
@@ -153,6 +154,7 @@ extern "C" __global__ void __launch_bounds__(256) astral_quantize_x_q8(const flo
     const int q = a == 0.0f ? 0 : __float2int_rn(v / d);
     xq[(u64)s * K + kb * 32u + lane] = (signed char)q;
     if (lane == 0) xd[b] = d;
+    if (xh) xh[(u64)s * K + kb * 32u + lane] = __float2half_rn(v);
 }
 
 // 16-entry int8 table lookup of the 8 nibbles of q4: .x = low nibbles of bytes 0..3,

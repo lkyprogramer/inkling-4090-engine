@@ -16,14 +16,12 @@ Changes in this fork on top of upstream `49a0a2b`.
 - `bench/llamacpp_compare/`: KLD and top-1 comparison, tokenizer parity, greedy references and teacher-forced verdicts, streaming serving benchmark and paired statistics.
 - Docs: [RTX 4090](docs/hardware/rtx4090.md) and [Inkling 2 Mini on RTX 4090](docs/benchmarks/inkling2_mini_rtx4090.md).
 - GitHub issue and pull request templates; host-only CI (format, tests, script syntax).
-
-### Added
-
 - Coverage diagnostics: `astral dump-verify-logits` (DSpark verify-pass rows, teacher-forced), a `decode` kind in `dump-final-logits` (prefill, then decode steps) and `ASTRAL_DUMP_PREFILL=1` for `dump-logits` (the serving path in llama.cpp's KL-divergence format).
 
 ### Fixed
 
-- Prefill is bit-reproducible run to run. The split-K GEMMs of the prefill path (the grouped tensor-core GEMM and the loop controller's down projection) added their K slices with float `atomicAdd`, so the rounding depended on block timing (two identical runs differed by up to 0.0024 nats KL at single positions). Each split now stores its partial sums in a workspace (16 MiB, reserved per session) and a second kernel adds them in split order. Cost on an RTX 4090: +1.5 ms (2.5%) for a 16-token prefill, none measurable at 128 and 512 tokens. `astral selftest` gains split-K repeatability cases.
+- Prefill is bit-reproducible run to run. The split-K GEMMs of the prefill path (the grouped tensor-core GEMM and the loop controller's down projection) added their K slices with float `atomicAdd`, so the rounding depended on block timing (two identical runs differed by up to 0.0024 nats KL at single positions). Each split now stores its partial sums in a workspace (16 MiB, reserved per session) and a second kernel adds them in split order. Cost on an RTX 4090: +1.5 ms (2.5%) for a 16-token prefill, none measurable at 128 and 512 tokens. `astral selftest` gains split-K repeatability cases (the GEMM ones only test real inputs since the fix below).
+- `Gemv::quantize` also writes the f16 activation plane when the `QAct` keeps one (`QAct::with_f16`). It wrote only the int8 values and scales, so the grouped tensor-core GEMM, which reads the f16 plane, multiplied zeros. Only `astral selftest` used it that way: its split-K GEMM cases compared zero outputs. The model paths fill the plane in their fused norm / quantise kernels and are unaffected. The GEMM cases now check their inputs first: nonzero output, a CPU reference on f16-rounded operands, one changed activation moving only its token's outputs, and a negative control (an unwritten plane must fail).
 - `DeviceBuffer::zeroed`, `DeviceBuffer::copy_from_slice` and `VmmRegion::write` wait for the legacy stream before returning, so kernels on non-blocking streams no longer race with the fill or the pageable upload. Seen as 3–4 failing MXFP4 self-test cases on a PCIe Gen3 RTX 4090.
 - `quant::tests::mxfp4_block` builds the expected subnormal 2^-128 from bits; `2f32.powi(-128)` is 0.0 in debug builds.
 
