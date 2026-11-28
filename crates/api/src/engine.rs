@@ -15,6 +15,8 @@ pub struct EngineConfig {
     pub gguf: PathBuf,
     /// Native checkpoint directory with `mtp.safetensors` (the DSpark draft); None: no draft.
     pub draft: Option<PathBuf>,
+    /// A second draft directory and the context length (prompt tokens) from which it is used.
+    pub draft_alt: Option<(PathBuf, usize)>,
     /// Drafted tokens verified per round.
     pub k: usize,
     /// Context capacity (positions) of the session.
@@ -100,6 +102,9 @@ fn load(cfg: &EngineConfig) -> Result<Session> {
     let mut s = Session::new(&ctx, w, cfg.ctx)?;
     if let Some(dir) = &cfg.draft {
         s.enable_spec(dir, cfg.k)?;
+        if let Some((alt, from)) = &cfg.draft_alt {
+            s.enable_spec_alt(alt, cfg.k, *from)?;
+        }
     }
     // Warm-up: capture the decode / speculative graphs before the first request.
     let warm = [200028u32, 760, 6511, 314];
@@ -115,6 +120,16 @@ fn load(cfg: &EngineConfig) -> Result<Session> {
             s.spec_next()?;
         }
         s.reset()?;
+        // The alternative draft (long contexts) too, with the same short prompt.
+        if s.spec_has_alt() {
+            s.spec_swap();
+            s.spec_begin_as_is(&warm)?;
+            for _ in 0..4 {
+                s.spec_next()?;
+            }
+            s.reset()?;
+            s.spec_swap();
+        }
     }
     Ok(s)
 }

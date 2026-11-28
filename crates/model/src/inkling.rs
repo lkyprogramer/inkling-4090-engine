@@ -568,6 +568,11 @@ pub struct Session {
     reset_graph: Option<GraphExec>,
     /// DSpark speculative decoding, when enabled ([`Session::enable_spec`]).
     spec: Option<Box<Spec>>,
+    /// A second draft ([`Session::enable_spec_alt`]): `spec_begin` swaps it in when the context
+    /// after the prompt reaches `alt_from` positions, and back for shorter prompts.
+    spec_alt: Option<Box<Spec>>,
+    alt_from: usize,
+    alt_on: bool,
     /// Host copies of small weights for [`Session::probe_report`], read on first use.
     probe_w: Option<probe::HostW>,
 }
@@ -689,6 +694,9 @@ impl Session {
             graph: None,
             reset_graph: None,
             spec: None,
+            spec_alt: None,
+            alt_from: usize::MAX,
+            alt_on: false,
             probe_w: None,
             w,
         };
@@ -895,6 +903,34 @@ impl Session {
         Ok(())
     }
 
+    /// Loads a second draft from `dir` (DSpark or DFlash2, as [`Session::enable_spec`]) used for
+    /// requests whose context after the prompt reaches `from` positions (call after
+    /// `enable_spec`). Each draft keeps its own context K/V, round graphs and rollback table, so
+    /// a swap is free; a draft swapped in mid-sequence lacks the earlier context (the engine
+    /// resets per request, so this does not happen there).
+    pub fn enable_spec_alt(&mut self, dir: &std::path::Path, k: usize, from: usize) -> Result<()> {
+        let main = self.spec.take().ok_or_else(|| bad("enable_spec_alt: call enable_spec first".into()))?;
+        let r = self.enable_spec(dir, k);
+        self.spec_alt = self.spec.take();
+        self.spec = Some(main);
+        r?;
+        self.alt_from = from;
+        self.alt_on = false;
+        Ok(())
+    }
+
+    /// Swaps the active and the alternative draft (no-op without one); for warm-up.
+    pub fn spec_swap(&mut self) {
+        if self.spec_alt.is_some() {
+            std::mem::swap(&mut self.spec, &mut self.spec_alt);
+            self.alt_on = !self.alt_on;
+        }
+    }
+
+    pub fn spec_has_alt(&self) -> bool {
+        self.spec_alt.is_some()
+    }
+
     /// Diagnostics: make speculative rounds accept against `seq` (prompt + continuation, token
     /// by position) instead of the target's greedy picks. Call before the first `spec_generate`.
     pub fn spec_force(&mut self, seq: &[u32]) -> Result<()> {
@@ -944,6 +980,17 @@ impl Session {
     /// from the current position (call [`Session::reset`] first for a new sequence) and drafts
     /// the first block. Returns the first generated token; [`Session::spec_next`] yields the rest.
     pub fn spec_begin(&mut self, prompt: &[u32]) -> Result<u32> {
+        if self.spec.is_none() {
+            return Err(bad("spec_begin: speculative decoding is not enabled".into()));
+        }
+        if self.spec_alt.is_some() && (self.pos as usize + prompt.len() >= self.alt_from) != self.alt_on {
+            self.spec_swap();
+        }
+        self.spec_begin_as_is(prompt)
+    }
+
+    /// [`Session::spec_begin`] with the active draft, whatever the context length.
+    pub fn spec_begin_as_is(&mut self, prompt: &[u32]) -> Result<u32> {
         if self.spec.is_none() {
             return Err(bad("spec_begin: speculative decoding is not enabled".into()));
         }

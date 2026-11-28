@@ -20,7 +20,7 @@
 use astral_core::Result;
 use std::process::ExitCode;
 
-const USAGE: &str = "usage: astral <hw [--bench | --bench-fresh] | selftest | gguf-info <model> [--tensors] | verify-embd <file> <log> | verify-model <file> <log> | generate <model> <n> <ids...> | dump-logits <model> <llama kld base> <out> | dump-final-logits <model> <manifest> <out dir> | dump-verify-logits <model> <checkpoint dir> <k> <manifest> <out dir> | trace <model> <manifest> <out dir> | ls-diag <model> <first> <ids...|@file> | spec-generate <model> <checkpoint dir> <k> <n> <ids...|@file> | serve <model> [--checkpoint <dir>] [--no-draft] [--k 6] [--host 0.0.0.0] [--port 8000] [--ctx 8192] [--name inkling-2-mini] | version>";
+const USAGE: &str = "usage: astral <hw [--bench | --bench-fresh] | selftest | gguf-info <model> [--tensors] | verify-embd <file> <log> | verify-model <file> <log> | generate <model> <n> <ids...> | dump-logits <model> <llama kld base> <out> | dump-final-logits <model> <manifest> <out dir> | dump-verify-logits <model> <checkpoint dir> <k> <manifest> <out dir> | trace <model> <manifest> <out dir> | ls-diag <model> <first> <ids...|@file> | spec-generate <model> <checkpoint dir> <k> <n> <ids...|@file> | serve <model> [--checkpoint <dir>] [--draft <dir>] [--draft-alt <dir> --alt-from 4096] [--no-draft] [--k 6] [--host 0.0.0.0] [--port 8000] [--ctx 8192] [--name inkling-2-mini] | version>";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -636,6 +636,8 @@ fn cmd_cmp_prefill(path: &str, ids: &[String]) -> Result<bool> {
 fn cmd_serve(a: &[String]) -> Result<bool> {
     let bad = |m: String| astral_core::AstralError::Invalid(m);
     let gguf = a.first().ok_or_else(|| bad("serve: missing model (a .gguf file or a checkpoint directory)".into()))?.clone();
+    let mut draft_dir = None::<String>;
+    let (mut alt_dir, mut alt_from) = (None::<String>, 4096usize);
     let (mut ckpt, mut draft, mut k, mut host, mut port, mut ctx, mut name, mut queue) = (None::<String>, true, 6usize, "0.0.0.0".to_string(), 8000u16, 8192u32, "inkling-2-mini".to_string(), 64usize);
     let mut i = 1;
     while i < a.len() {
@@ -646,6 +648,18 @@ fn cmd_serve(a: &[String]) -> Result<bool> {
                 i += 1;
             }
             "--no-draft" => draft = false,
+            "--draft" => {
+                draft_dir = Some(val(i)?);
+                i += 1;
+            }
+            "--draft-alt" => {
+                alt_dir = Some(val(i)?);
+                i += 1;
+            }
+            "--alt-from" => {
+                alt_from = val(i)?.parse().map_err(|_| bad("serve: --alt-from must be a number".into()))?;
+                i += 1;
+            }
             "--k" => {
                 k = val(i)?.parse().map_err(|_| bad("serve: --k must be a number".into()))?;
                 i += 1;
@@ -676,7 +690,7 @@ fn cmd_serve(a: &[String]) -> Result<bool> {
     }
     let ckpt = ckpt.or_else(|| std::path::Path::new(&gguf).is_dir().then(|| gguf.clone()));
     let ckpt = std::path::PathBuf::from(ckpt.ok_or_else(|| bad("serve: --checkpoint <dir> (tokenizer and draft) is required with a .gguf model".into()))?);
-    let engine = astral_api::engine::EngineConfig { gguf: gguf.into(), draft: draft.then(|| ckpt.clone()), k, ctx, queue };
+    let engine = astral_api::engine::EngineConfig { gguf: gguf.into(), draft: draft.then(|| draft_dir.map_or_else(|| ckpt.clone(), std::path::PathBuf::from)), draft_alt: alt_dir.map(|d| (std::path::PathBuf::from(d), alt_from)), k, ctx, queue };
     astral_api::serve(astral_api::ServerConfig { engine, tokenizer_dir: ckpt, host, port, model_name: name })?;
     Ok(true)
 }
