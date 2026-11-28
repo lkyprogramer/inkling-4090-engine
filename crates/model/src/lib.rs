@@ -7,6 +7,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod dflash2;
 pub mod dspark;
 pub mod inkling;
 pub mod qwen35;

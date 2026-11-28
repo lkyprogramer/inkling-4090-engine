@@ -15,6 +15,7 @@
 //! Matches vLLM's `Inkling2DSparkModel` (greedy): weights are Q8_0 here (BF16 there), and the
 //! Markov head's `hidden_out` is folded into the target LM head (`fold = lm_head @ hidden_out`).
 
+use crate::dflash2::{Df2, Df2Config};
 use crate::inkling::{DevWork, Weights as TargetWeights};
 use astral_core::{AstralError, Result};
 use astral_gpu::{Context, Dev, DeviceBuffer, GraphExec, Stream};
@@ -121,12 +122,12 @@ pub struct DraftWeights {
     pub bytes: usize,
 }
 
-fn q8(ctx: &Arc<Context>, x: &[f32], n: usize, k: usize) -> Result<GemvMatrix> {
+pub(crate) fn q8(ctx: &Arc<Context>, x: &[f32], n: usize, k: usize) -> Result<GemvMatrix> {
     let (qs, aux) = astral_quant::quantize_q8_0_rows(x, n, k)?;
     GemvMatrix::upload(ctx, GemvType::Q8_0, n as u32, k as u32, 1, &qs, &aux, None)
 }
 
-fn f32m(ctx: &Arc<Context>, x: &[f32], n: usize, k: usize) -> Result<GemvMatrix> {
+pub(crate) fn f32m(ctx: &Arc<Context>, x: &[f32], n: usize, k: usize) -> Result<GemvMatrix> {
     let b: Vec<u8> = x.iter().flat_map(|v| v.to_le_bytes()).collect();
     GemvMatrix::upload(ctx, GemvType::F32, n as u32, k as u32, 1, &b, &[], None)
 }
@@ -170,7 +171,7 @@ fn head_to_nvfp4(ctx: &Arc<Context>, lm: &GemvMatrix) -> Result<GemvMatrix> {
 }
 
 /// One grouped dp4a work item (rows <= 8): activation rows `x0 + r` to output rows `r`.
-fn item(ctx: &Arc<Context>, rows: usize, x0: u32) -> Result<DeviceBuffer<u32>> {
+pub(crate) fn item(ctx: &Arc<Context>, rows: usize, x0: u32) -> Result<DeviceBuffer<u32>> {
     let mut it = QItem { e: 0, n: rows as u32, ..Default::default() };
     for r in 0..rows {
         it.xi[r] = x0 + r as u32;
@@ -181,7 +182,7 @@ fn item(ctx: &Arc<Context>, rows: usize, x0: u32) -> Result<DeviceBuffer<u32>> {
 
 /// `y[t] = m x[t]` for the `rows` (<= 8) activation rows of `x`: the fused T-token GEMV when it
 /// applies (Q8_0), else one grouped dp4a item (`items`).
-fn mm_small(gemv: &Gemv, st: &Stream, m: &GemvMatrix, x: &QAct, rows: u32, y: &mut DeviceBuffer<f32>, items: &DeviceBuffer<u32>) -> Result<()> {
+pub(crate) fn mm_small(gemv: &Gemv, st: &Stream, m: &GemvMatrix, x: &QAct, rows: u32, y: &mut DeviceBuffer<f32>, items: &DeviceBuffer<u32>) -> Result<()> {
     let mut it = [MultiItem { m, x, y }];
     if gemv.small_mma() && m.ty == GemvType::Q8_0 && m.k.is_multiple_of(128) && x.slots >= rows {
         return gemv.launch_q_multi_mma(st, &mut it, rows);
@@ -195,7 +196,7 @@ fn mm_small(gemv: &Gemv, st: &Stream, m: &GemvMatrix, x: &QAct, rows: u32, y: &m
 
 /// One draft K or V cache: f16, or f32 with `ASTRAL_DRAFT_KV_F32=1`. Sliding-window layers keep
 /// only a ring of rows (`kv_rows`); the global layer keeps every position.
-struct KvBuf {
+pub(crate) struct KvBuf {
     buf: DeviceBuffer<u16>,
     rows: u32,
     stride: u32,
@@ -205,12 +206,12 @@ struct KvBuf {
 
 impl KvBuf {
     /// `(rows, ring)` from [`kv_rows`].
-    fn new(ctx: &Arc<Context>, (rows, ring): (usize, bool), stride: usize, half: bool) -> Result<Self> {
+    pub(crate) fn new(ctx: &Arc<Context>, (rows, ring): (usize, bool), stride: usize, half: bool) -> Result<Self> {
         let buf = DeviceBuffer::zeroed(ctx, rows * stride * if half { 1 } else { 2 })?;
         Ok(Self { buf, rows: rows as u32, stride: stride as u32, ring, half })
     }
 
-    fn r(&self) -> KvRef {
+    pub(crate) fn r(&self) -> KvRef {
         KvRef { ptr: self.buf.device_ptr(), bytes: 2 * self.buf.len(), rows: self.rows, stride: self.stride, ring: self.ring, half: self.half }
     }
 }
@@ -236,7 +237,7 @@ fn kv_ring() -> bool {
 
 /// FP16 draft K/V by default (same drafts as f32 on the T21 workloads, at 16K and at 100K);
 /// `ASTRAL_DRAFT_KV_F32=1` keeps f32.
-fn kv_half() -> bool {
+pub(crate) fn kv_half() -> bool {
     std::env::var_os("ASTRAL_DRAFT_KV_F32").is_none()
 }
 
@@ -251,6 +252,44 @@ fn dense_work(ctx: &Arc<Context>, rows: usize, x0: u32) -> Result<DevWork> {
 }
 
 impl DraftWeights {
+    /// A placeholder for a DFlash2 draft ([`Spec::df2`]): no layers, the DFlash2 taps, block,
+    /// hidden size and mask row, and 1 x 4 dummies for the DSpark head, so [`Spec::new`] sizes
+    /// the verify-side buffers and leaves the DSpark-only ones tiny.
+    pub fn shell(ctx: &Arc<Context>, c: &Df2Config) -> Result<Self> {
+        let one = || f32m(ctx, &[0.0; 4], 1, 4);
+        Ok(Self {
+            cfg: DraftConfig {
+                hidden: c.hidden,
+                layers: 0,
+                heads: 1,
+                kv_heads: 1,
+                inter: 32,
+                rank: 32,
+                eps: c.eps,
+                theta: c.theta,
+                window: c.window,
+                block: c.block,
+                local: Vec::new(),
+                taps: c.taps.clone(),
+            },
+            layers: Vec::new(),
+            alpha: vec![[0.25; 4]],
+            mask_embed: vec![0.0; c.hidden],
+            norm: DeviceBuffer::zeroed(ctx, c.hidden)?,
+            mk_norm: DeviceBuffer::zeroed(ctx, c.hidden)?,
+            w_s: one()?,
+            w_h: one()?,
+            w_f: one()?,
+            rnn_bias: DeviceBuffer::zeroed(ctx, 1)?,
+            w1: DeviceBuffer::zeroed(ctx, 1)?,
+            w1_rows: 1,
+            fold: one()?,
+            fold_bias: DeviceBuffer::zeroed(ctx, 1)?,
+            head_fp4: None,
+            bytes: 0,
+        })
+    }
+
     /// Loads `mtp.safetensors` from the native checkpoint directory `dir`, and folds the Markov
     /// head into the target's LM head on the GPU.
     pub fn load(ctx: &Arc<Context>, dir: &Path, target: &TargetWeights, gemv: &Gemv, ops: &DsparkOps) -> Result<Self> {
@@ -532,7 +571,9 @@ pub struct Spec {
     pub w: DraftWeights,
     pub ops: DsparkOps,
     pub(crate) tmax: usize,
-    capacity: u32,
+    pub(crate) capacity: u32,
+    /// The DFlash2 draft, when enabled: it replaces the DSpark context ingest and draft step.
+    pub df2: Option<Box<Df2>>,
     /// Target features `[4][tmax][dim]`.
     pub(crate) feats: DeviceBuffer<f32>,
     /// Per target slot: the short-conv inputs of the verified tokens (`[4 sites][k + 1][channels]`).
@@ -676,6 +717,7 @@ impl Spec {
             forced_host: Vec::new(),
             stats: SpecStats::default(),
             log: None,
+            df2: None,
             ops,
             w,
         })
@@ -685,6 +727,9 @@ impl Spec {
     /// positions `pos..`; `verify` selects the fixed (k + 1)-row work list, else `work_pf`
     /// (uploaded by the caller for `rows`).
     pub(crate) fn store_ctx(&mut self, st: &Stream, gemv: &Gemv, rows: usize, pos: DevIndex, verify: bool) -> Result<()> {
+        if let Some(df) = self.df2.as_deref_mut() {
+            return df.store_ctx(st, gemv, &self.ops, &self.feats, self.tmax, rows, pos, verify, &self.work_pf);
+        }
         let c = &self.w.cfg;
         let (d, kvh) = (c.hidden, c.kv_heads as u32);
         let kvw = kvh * HEAD_DIM;
@@ -712,6 +757,9 @@ impl Spec {
     /// round does not verify.
     pub(crate) fn draft(&mut self, st: &Stream, gemv: &Gemv, iops: &InklingOps, tw: &TargetWeights, token: &DeviceBuffer<i32>, n: usize) -> Result<()> {
         let n = n.clamp(1, self.k);
+        if let Some(df) = self.df2.as_deref_mut() {
+            return df.draft(st, gemv, &self.ops, iops, tw, token, &self.info, n);
+        }
         let c = &self.w.cfg;
         let (d, nb, r) = (c.hidden, c.block, c.rank);
         let (du, nbu) = (d as u32, nb as u32);
@@ -738,7 +786,7 @@ impl Spec {
             self.ops.head_prep(st, qp + 4 * qw as u64, qkvw, HeadDst::Cache(self.kc[l].r()), Some(&lw.k_norm), true, start, nbu, kvh, c.theta, c.eps)?;
             self.ops.head_prep(st, qp + 4 * (qw + kvw) as u64, qkvw, HeadDst::Cache(self.vc[l].r()), None, false, start, nbu, kvh, c.theta, c.eps)?;
             let window = if c.local[l] { c.window + nbu } else { 0 };
-            self.ops.attn(st, qp, qkvw, self.kc[l].r(), self.vc[l].r(), &mut self.att, start, nbu, heads, kvh, window, self.capacity)?;
+            self.ops.attn(st, qp, qkvw, self.kc[l].r(), self.vc[l].r(), &mut self.att, start, nbu, heads, kvh, window, self.capacity, false)?;
             self.ops.quant(st, &self.att, qw, nbu, &mut self.qa_o)?;
             mm_small(gemv, st, &lw.wo, &self.qa_o, nbu, &mut self.tmp, blk)?;
             self.ops.add_rms_q8(st, self.res.dptr(), nb * d, Some(&self.tmp), Some(self.res.dptr()), &lw.post_ln, None, Some(&mut self.qa_d), nbu, du, c.eps)?;

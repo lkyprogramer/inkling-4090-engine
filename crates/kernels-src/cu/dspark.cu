@@ -155,11 +155,13 @@ extern "C" __global__ void __launch_bounds__(32 * DSP_ATT_WARPS) astral_dsp_attn
                                                                   const float* __restrict__ vc, float* __restrict__ out, const int* __restrict__ pos_p,
                                                                   unsigned pos_idx, unsigned nblk, unsigned heads, unsigned kv_heads,
                                                                   unsigned window, float scale, unsigned capacity, unsigned rows,
-                                                                  unsigned ring, unsigned half) { PDL_WAIT();
+                                                                  unsigned ring, unsigned half, unsigned row_shift) { PDL_WAIT();
     const unsigned t = blockIdx.x, kh = blockIdx.y, lane = threadIdx.x & 31u, warp = threadIdx.x >> 5;
     const unsigned g = heads / kv_heads;
     const int L = min(pos_p[pos_idx] + (int)nblk, (int)capacity);
-    const int lo = window ? max(0, L - (int)window) : 0;
+    // row_shift (DFlash2): query t's own window, lo = L - window + t (window = W + nblk - 1 gives
+    // keys p > pos(t) - W, the sliding-window rule of the draft's training).
+    const int lo = window ? max(0, L - (int)window + (row_shift ? (int)t : 0)) : 0;
     const unsigned kvw = kv_heads * DSP_HD;
     float qr[DSP_MAXG][4], m[DSP_MAXG], l[DSP_MAXG], acc[DSP_MAXG][4];
 #pragma unroll
@@ -425,4 +427,176 @@ extern "C" __global__ void __launch_bounds__(256) astral_dsp_argmax_fin(const fl
     for (unsigned i = threadIdx.x; i < nparts; i += blockDim.x) best_merge(best, idx, part_v[r * nparts + i], part_i[r * nparts + i]);
     block_best(best, idx);
     if (threadIdx.x == 0) out[r * out_stride] = (int)idx;
+}
+
+// ---------------------------------------------------------------------------------------------
+// DFlash2 draft (incoai/Inkling-2-Mini-DFlash2): context ingest from the concatenated taps, the
+// two-tap dynamic convolutions around attention and MLP, top-16 of the head and the candidate
+// selector's greedy path. Mirrors llama.cpp's dflash2 graph (src/models/dflash2.cpp, b12823).
+
+// out[t][i * dim + c] = feat[i * tap_stride + t * dim + c] for the 4 taps. Grid (ceil(4 dim / 256), rows).
+extern "C" __global__ void astral_df2_gather4(const float* __restrict__ feat, u64 tap_stride, float* __restrict__ out, unsigned dim) { PDL_WAIT();
+    const unsigned j = blockIdx.x * blockDim.x + threadIdx.x, t = blockIdx.y;
+    if (j >= 4 * dim) return;
+    const unsigned i = j / dim, c = j - i * dim;
+    out[(u64)t * 4 * dim + j] = feat[(u64)i * tap_stride + (u64)t * dim + c];
+}
+
+// Two-tap grouped dynamic convolution inside one block of rows (kernel size 2, group 16):
+// y[t][c] = (base[side][0][c] + dyn[t][side][0][g]) x[t][c] + [t > 0] (base[side][1][c] + dyn[t][side][1][g]) x[t-1][c],
+// g = c / 16, dyn rows of 4 * groups laid out [side][tap][group]. y to out (optional) and/or
+// quantised into (xq, xd, xh). x and out must not alias. One block per row.
+extern "C" __global__ void __launch_bounds__(1024) astral_df2_conv(const float* __restrict__ x, const float* __restrict__ dyn, const float* __restrict__ base,
+                                                                   unsigned side, float* __restrict__ out, signed char* __restrict__ xq,
+                                                                   float* __restrict__ xd, __half* __restrict__ xh, unsigned dim) { PDL_WAIT();
+    const unsigned t = blockIdx.x, lane = threadIdx.x & 31u, nw = blockDim.x >> 5;
+    const unsigned groups = dim >> 4;
+    const u64 o = (u64)t * dim;
+    const float* dy = dyn + (u64)t * 4 * groups + 2 * side * groups;
+    const float* b0 = base + (u64)(2 * side) * dim;
+    const float* b1 = b0 + dim;
+    for (unsigned b = threadIdx.x >> 5; b < (dim >> 5); b += nw) {
+        const unsigned c = b * 32u + lane, g = c >> 4;
+        float v = (b0[c] + dy[g]) * x[o + c];
+        if (t > 0) v = fmaf(b1[c] + dy[groups + g], x[o - dim + c], v);
+        if (out) out[o + c] = v;
+        if (xq) q8_store(v, xq + o, xd + (o >> 5), b, lane, xh ? xh + o : nullptr);
+    }
+}
+
+#define DF2_TOPK 16
+#define DF2_PARTS 64
+#define DF2_CHUNK_MAX 4096
+
+// Block-wide argmax of (v, i) pairs (ties: lower index); returns the winner in every thread.
+__device__ void df2_block_best(float v, unsigned i, float* bv, unsigned* bi) {
+    __shared__ float wv[32];
+    __shared__ unsigned wi[32];
+    for (int o = 16; o > 0; o >>= 1) {
+        const float ov = __shfl_xor_sync(0xffffffffu, v, o);
+        const unsigned oi = __shfl_xor_sync(0xffffffffu, i, o);
+        if (ov > v || (ov == v && oi < i)) { v = ov; i = oi; }
+    }
+    const unsigned lane = threadIdx.x & 31u, warp = threadIdx.x >> 5;
+    __syncthreads();
+    if (lane == 0) { wv[warp] = v; wi[warp] = i; }
+    __syncthreads();
+    if (warp == 0) {
+        v = lane < (blockDim.x >> 5) ? wv[lane] : -INFINITY;
+        i = lane < (blockDim.x >> 5) ? wi[lane] : 0xffffffffu;
+        for (int o = 16; o > 0; o >>= 1) {
+            const float ov = __shfl_xor_sync(0xffffffffu, v, o);
+            const unsigned oi = __shfl_xor_sync(0xffffffffu, i, o);
+            if (ov > v || (ov == v && oi < i)) { v = ov; i = oi; }
+        }
+        if (lane == 0) { wv[0] = v; wi[0] = i; }
+    }
+    __syncthreads();
+    *bv = wv[0];
+    *bi = wi[0];
+}
+
+// Top-16 per row, part 1: block (part, row) takes its chunk of x[row][0..n) and writes its 16
+// best (value, id) pairs, best first. Grid (DF2_PARTS, rows), block 256.
+extern "C" __global__ void __launch_bounds__(256) astral_df2_topk_part(const float* __restrict__ x, unsigned x_stride, unsigned n,
+                                                                       float* __restrict__ pv, unsigned* __restrict__ pi) { PDL_WAIT();
+    __shared__ float sv[DF2_CHUNK_MAX];
+    const unsigned part = blockIdx.x, row = blockIdx.y;
+    const unsigned chunk = (n + DF2_PARTS - 1) / DF2_PARTS;
+    const unsigned beg = part * chunk, end = min(n, beg + chunk);
+    const unsigned len = end > beg ? end - beg : 0;
+    const float* xr = x + (u64)row * x_stride + beg;
+    for (unsigned j = threadIdx.x; j < len; j += blockDim.x) sv[j] = xr[j];
+    __syncthreads();
+    for (unsigned k = 0; k < DF2_TOPK; k++) {
+        float v = -INFINITY;
+        unsigned i = 0xffffffffu;
+        for (unsigned j = threadIdx.x; j < len; j += blockDim.x)
+            if (sv[j] > v) { v = sv[j]; i = j; }
+        float bv;
+        unsigned bi;
+        df2_block_best(v, i, &bv, &bi);
+        if (threadIdx.x == 0) {
+            const u64 o = ((u64)row * DF2_PARTS + part) * DF2_TOPK + k;
+            pv[o] = bv;
+            pi[o] = bi == 0xffffffffu ? 0xffffffffu : beg + bi;
+            if (bi != 0xffffffffu) sv[bi] = -INFINITY;
+        }
+        __syncthreads();
+    }
+}
+
+// Top-16 per row, part 2: merge the DF2_PARTS x 16 partials of row blockIdx.x into cand_v /
+// cand_i (16 per row, best first; ties: lower id). Block 256.
+extern "C" __global__ void __launch_bounds__(256) astral_df2_topk_fin(const float* __restrict__ pv, const unsigned* __restrict__ pi,
+                                                                      float* __restrict__ cand_v, int* __restrict__ cand_i) { PDL_WAIT();
+    __shared__ float sv[DF2_PARTS * DF2_TOPK];
+    __shared__ unsigned si[DF2_PARTS * DF2_TOPK];
+    const unsigned row = blockIdx.x, m = DF2_PARTS * DF2_TOPK;
+    for (unsigned j = threadIdx.x; j < m; j += blockDim.x) {
+        sv[j] = pv[(u64)row * m + j];
+        si[j] = pi[(u64)row * m + j];
+    }
+    __syncthreads();
+    for (unsigned k = 0; k < DF2_TOPK; k++) {
+        float v = -INFINITY;
+        unsigned id = 0xffffffffu, at = 0xffffffffu;
+        for (unsigned j = threadIdx.x; j < m; j += blockDim.x)
+            if (si[j] != 0xffffffffu && (sv[j] > v || (sv[j] == v && si[j] < id))) { v = sv[j]; id = si[j]; at = j; }
+        float bv;
+        unsigned bid;
+        df2_block_best(v, id, &bv, &bid);
+        // the owner of the winning id retires it
+        if (id == bid && at != 0xffffffffu) si[at] = 0xffffffffu;
+        if (threadIdx.x == 0) {
+            cand_v[row * DF2_TOPK + k] = bv;
+            cand_i[row * DF2_TOPK + k] = bid == 0xffffffffu ? 0 : (int)bid;
+        }
+        __syncthreads();
+    }
+}
+
+__device__ __forceinline__ float bf16f(unsigned short b) { return __uint_as_float((unsigned)b << 16); }
+
+// Candidate selector, greedy path (one block of 16 warps, one candidate per warp): for step
+// t = 1..n, prev = token[t - 1] (token[0] is the anchor), score(c) = unary(c) +
+// sum_r succ[c][r] pred[prev][r] gate[t-1][r], capped cap * tanh(score / cap) when cap > 0
+// (softcap after the correction); token[t] = the best candidate (ties: the earlier, i.e. higher
+// unary), chance[t-1] = softmax of the 16 capped scores at it. Codebooks are bf16 [vocab][rank].
+extern "C" __global__ void __launch_bounds__(512) astral_df2_select(const int* __restrict__ cand_i, const float* __restrict__ cand_v,
+                                                                    const float* __restrict__ gate, const unsigned short* __restrict__ pred,
+                                                                    const unsigned short* __restrict__ succ, unsigned rank, unsigned vocab,
+                                                                    int* __restrict__ token, unsigned n, float cap, float* __restrict__ chance) { PDL_WAIT();
+    __shared__ float sc[DF2_TOPK];
+    __shared__ int prev_s;
+    const unsigned lane = threadIdx.x & 31u, w = threadIdx.x >> 5;
+    if (threadIdx.x == 0) prev_s = token[0];
+    __syncthreads();
+    for (unsigned t = 1; t <= n; t++) {
+        const unsigned prev = (unsigned)min(max(prev_s, 0), (int)vocab - 1);
+        if (w < DF2_TOPK) {
+            const unsigned c = (unsigned)min(max(cand_i[(t - 1) * DF2_TOPK + w], 0), (int)vocab - 1);
+            const unsigned short* sp = succ + (u64)c * rank;
+            const unsigned short* pp = pred + (u64)prev * rank;
+            const float* gp = gate + (u64)(t - 1) * rank;
+            float s = 0.0f;
+            for (unsigned r = lane; r < rank; r += 32) s = fmaf(bf16f(sp[r]) * bf16f(pp[r]), gp[r], s);
+            s = warp_sum(s) + cand_v[(t - 1) * DF2_TOPK + w];
+            if (cap > 0.0f) s = cap * tanhf(s / cap);
+            if (lane == 0) sc[w] = s;
+        }
+        __syncthreads();
+        if (threadIdx.x == 0) {
+            unsigned best = 0;
+            for (unsigned j = 1; j < DF2_TOPK; j++)
+                if (sc[j] > sc[best]) best = j;
+            float z = 0.0f;
+            for (unsigned j = 0; j < DF2_TOPK; j++) z += __expf(sc[j] - sc[best]);
+            const int tok = cand_i[(t - 1) * DF2_TOPK + best];
+            token[t] = tok;
+            prev_s = tok;
+            if (chance) chance[t - 1] = 1.0f / z;
+        }
+        __syncthreads();
+    }
 }

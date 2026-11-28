@@ -81,7 +81,17 @@ pub struct DsparkOps {
     rowmax_part: Function,
     fold_part: Function,
     argmax_fin: Function,
+    df2_gather4: Function,
+    df2_conv: Function,
+    df2_topk_part: Function,
+    df2_topk_fin: Function,
+    df2_select: Function,
 }
+
+/// Candidates per row of the DFlash2 selector (`DF2_TOPK`) and the partial blocks of its top-k.
+pub const DF2_TOPK: u32 = 16;
+pub const DF2_PARTS: u32 = 64;
+const DF2_CHUNK_MAX: u32 = 4096;
 
 /// Blocks of the multi-block argmax (partials per row).
 pub const ARGMAX_PARTS: u32 = 264;
@@ -104,6 +114,11 @@ impl DsparkOps {
             rowmax_part: f("astral_dsp_rowmax_part")?,
             fold_part: f("astral_dsp_fold_part")?,
             argmax_fin: f("astral_dsp_argmax_fin")?,
+            df2_gather4: f("astral_df2_gather4")?,
+            df2_conv: f("astral_df2_conv")?,
+            df2_topk_part: f("astral_df2_topk_part")?,
+            df2_topk_fin: f("astral_df2_topk_fin")?,
+            df2_select: f("astral_df2_select")?,
         })
     }
 
@@ -245,7 +260,8 @@ impl DsparkOps {
     }
 
     /// Draft block attention: `nblk` queries (row stride `q_stride`) over cached keys
-    /// `[L - window, L)`, `L = min(pos + nblk, capacity)` (window 0 = all). `kc` and `vc` share one
+    /// `[L - window, L)`, `L = min(pos + nblk, capacity)` (window 0 = all); with `row_shift` query
+    /// `t` reads `[L - window + t, L)` (DFlash2's per-row sliding window). `kc` and `vc` share one
     /// layout. `out` is `[nblk][heads * 128]`.
     #[allow(clippy::too_many_arguments)]
     pub fn attn(
@@ -262,6 +278,7 @@ impl DsparkOps {
         kv_heads: u32,
         window: u32,
         capacity: u32,
+        row_shift: bool,
     ) -> Result<()> {
         if kv_heads == 0 || !heads.is_multiple_of(kv_heads) || heads / kv_heads > MAX_GROUP || nblk == 0 {
             return Err(invalid(format!("dspark attn: {heads} heads over {kv_heads} KV heads")));
@@ -279,7 +296,7 @@ impl DsparkOps {
         need("dspark attn out", out.dlen(), (nblk * heads * HEAD_DIM) as usize)?;
         let (mut pq, mut qs, mut pk, mut pv, mut po, mut pp, mut pi) = (q, q_stride, kc.ptr, vc.ptr, out.dptr(), pos.ptr, pos.idx);
         let (mut nb, mut h, mut kh, mut win, mut sc, mut cap) = (nblk, heads, kv_heads, window, 1.0f32 / (HEAD_DIM as f32).sqrt(), capacity);
-        let (mut rows, mut ring, mut half) = (kc.rows, kc.ring as u32, kc.half as u32);
+        let (mut rows, mut ring, mut half, mut rs) = (kc.rows, kc.ring as u32, kc.half as u32, row_shift as u32);
         let mut p = [
             param(&mut pq),
             param(&mut qs),
@@ -297,6 +314,7 @@ impl DsparkOps {
             param(&mut rows),
             param(&mut ring),
             param(&mut half),
+            param(&mut rs),
         ];
         Self::go(&self.attn, s, LaunchConfig { grid: (nblk, kv_heads, 1), block: (32 * 16, 1, 1), shared_mem_bytes: 0 }, &mut p)
     }
@@ -430,5 +448,97 @@ impl DsparkOps {
         let mut p = [param(&mut pq), param(&mut pd), param(&mut a), param(&mut b), param(&mut pb), param(&mut pf), param(&mut nn), param(&mut pv), param(&mut pi)];
         Self::go(&self.fold_part, s, LaunchConfig { grid: (ARGMAX_PARTS, 1, 1), block: (256, 1, 1), shared_mem_bytes: 0 }, &mut p)?;
         self.fin(s, part_v.dptr(), part_i.dptr(), 1, out.ptr + 4 * out.idx as u64, 1)
+    }
+
+    /// DFlash2 context input: `out[t] = [feat[0][t] | feat[1][t] | feat[2][t] | feat[3][t]]` for
+    /// `rows` rows of `dim` (taps `tap_stride` floats apart).
+    pub fn df2_gather4(&self, s: &Stream, feat: &dyn Dev<f32>, tap_stride: usize, out: &mut dyn DevMut<f32>, rows: u32, dim: u32) -> Result<()> {
+        need("df2_gather4 feat", feat.dlen(), 3 * tap_stride + (rows * dim) as usize)?;
+        need("df2_gather4 out", out.dlen(), (4 * rows * dim) as usize)?;
+        let (mut pf, mut ts, mut po, mut d) = (feat.dptr(), tap_stride as u64, out.dptr(), dim);
+        let mut p = [param(&mut pf), param(&mut ts), param(&mut po), param(&mut d)];
+        Self::go(&self.df2_gather4, s, LaunchConfig { grid: ((4 * dim).div_ceil(256), rows, 1), block: (256, 1, 1), shared_mem_bytes: 0 }, &mut p)
+    }
+
+    /// DFlash2's two-tap dynamic convolution over `rows` block rows of `dim` (group 16):
+    /// `dyn` rows of `dim / 4` coefficients (`[side][tap][group]`), `base` `[side][tap][dim]`.
+    /// The result goes to `out` and/or is quantised into `qa`; `x` must not alias `out`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn df2_conv(&self, s: &Stream, x: &dyn Dev<f32>, dynamic: &dyn Dev<f32>, base: &dyn Dev<f32>, side: u32, out: Option<&mut dyn DevMut<f32>>, qa: Option<&mut QAct>, rows: u32, dim: u32) -> Result<()> {
+        if rows == 0 || !dim.is_multiple_of(32) || side > 1 {
+            return Err(invalid(format!("df2_conv: {rows} rows of {dim}, side {side}")));
+        }
+        let n = (rows * dim) as usize;
+        need("df2_conv x", x.dlen(), n)?;
+        need("df2_conv dyn", dynamic.dlen(), (rows * dim / 4) as usize)?;
+        need("df2_conv base", base.dlen(), 4 * dim as usize)?;
+        let po = match out {
+            Some(o) => {
+                need("df2_conv out", o.dlen(), n)?;
+                o.dptr()
+            }
+            None => 0,
+        };
+        let (mut pq, mut pd, mut ph) = match qa {
+            Some(q) => {
+                if q.k != dim {
+                    return Err(invalid(format!("df2_conv: activations k {} != dim {dim}", q.k)));
+                }
+                q.planes_for(rows)?
+            }
+            None => (0, 0, 0),
+        };
+        let (mut px, mut py, mut pb, mut sd, mut po, mut d) = (x.dptr(), dynamic.dptr(), base.dptr(), side, po, dim);
+        let mut p = [param(&mut px), param(&mut py), param(&mut pb), param(&mut sd), param(&mut po), param(&mut pq), param(&mut pd), param(&mut ph), param(&mut d)];
+        let block = (dim / 4).next_multiple_of(32).clamp(64, 1024);
+        Self::go(&self.df2_conv, s, LaunchConfig { grid: (rows, 1, 1), block: (block, 1, 1), shared_mem_bytes: 0 }, &mut p)
+    }
+
+    /// Top-16 (value, id) of each of `rows` rows of `x` (stride `x_stride`, first `n` values), best
+    /// first; `part_*` hold `rows * DF2_PARTS * DF2_TOPK` partials.
+    #[allow(clippy::too_many_arguments)]
+    pub fn df2_topk(&self, s: &Stream, x: &dyn Dev<f32>, x_stride: u32, n: u32, rows: u32, part_v: &mut dyn DevMut<f32>, part_i: &mut dyn DevMut<u32>, cand_v: &mut dyn DevMut<f32>, cand_i: &mut dyn DevMut<i32>) -> Result<()> {
+        if rows == 0 || n < DF2_TOPK || n.div_ceil(DF2_PARTS) > DF2_CHUNK_MAX {
+            return Err(invalid(format!("df2_topk: {rows} rows of {n}")));
+        }
+        need("df2_topk x", x.dlen(), (rows as usize - 1) * x_stride as usize + n as usize)?;
+        need("df2_topk parts", part_v.dlen().min(part_i.dlen()), (rows * DF2_PARTS * DF2_TOPK) as usize)?;
+        need("df2_topk cand", cand_v.dlen().min(cand_i.dlen()), (rows * DF2_TOPK) as usize)?;
+        let (mut px, mut xs, mut nn, mut pv, mut pi) = (x.dptr(), x_stride, n, part_v.dptr(), part_i.dptr());
+        let mut p = [param(&mut px), param(&mut xs), param(&mut nn), param(&mut pv), param(&mut pi)];
+        Self::go(&self.df2_topk_part, s, LaunchConfig { grid: (DF2_PARTS, rows, 1), block: (256, 1, 1), shared_mem_bytes: 0 }, &mut p)?;
+        let (mut a, mut b, mut cv, mut ci) = (part_v.dptr(), part_i.dptr(), cand_v.dptr(), cand_i.dptr());
+        let mut p = [param(&mut a), param(&mut b), param(&mut cv), param(&mut ci)];
+        Self::go(&self.df2_topk_fin, s, LaunchConfig { grid: (rows, 1, 1), block: (256, 1, 1), shared_mem_bytes: 0 }, &mut p)
+    }
+
+    /// DFlash2 candidate selector: walks `n` steps from the anchor `token[0]`, writing
+    /// `token[1..=n]` and the selector's `chance` of each pick. `gate` is `[n][rank]`, the
+    /// codebooks bf16 `[vocab][rank]`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn df2_select(
+        &self,
+        s: &Stream,
+        cand_i: &dyn Dev<i32>,
+        cand_v: &dyn Dev<f32>,
+        gate: &dyn Dev<f32>,
+        pred: &dyn Dev<u16>,
+        succ: &dyn Dev<u16>,
+        rank: u32,
+        vocab: u32,
+        token: &dyn Dev<i32>,
+        n: u32,
+        cap: f32,
+        chance: &mut dyn DevMut<f32>,
+    ) -> Result<()> {
+        need("df2_select cand", cand_i.dlen().min(cand_v.dlen()), (n * DF2_TOPK) as usize)?;
+        need("df2_select gate", gate.dlen(), (n * rank) as usize)?;
+        need("df2_select codebooks", pred.dlen().min(succ.dlen()), (vocab * rank) as usize)?;
+        need("df2_select token", token.dlen(), n as usize + 1)?;
+        need("df2_select chance", chance.dlen(), n as usize)?;
+        let (mut ci, mut cv, mut pg, mut pp, mut ps, mut r, mut v, mut pt, mut nn, mut c, mut pc) =
+            (cand_i.dptr(), cand_v.dptr(), gate.dptr(), pred.dptr(), succ.dptr(), rank, vocab, token.dptr(), n, cap, chance.dptr());
+        let mut p = [param(&mut ci), param(&mut cv), param(&mut pg), param(&mut pp), param(&mut ps), param(&mut r), param(&mut v), param(&mut pt), param(&mut nn), param(&mut c), param(&mut pc)];
+        Self::go(&self.df2_select, s, LaunchConfig { grid: (1, 1, 1), block: (512, 1, 1), shared_mem_bytes: 0 }, &mut p)
     }
 }

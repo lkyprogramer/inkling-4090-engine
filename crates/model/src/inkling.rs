@@ -856,12 +856,22 @@ impl Session {
         let ctx = self.stream.context().clone();
         let reg = KernelRegistry::load(&ctx)?;
         let dops = DsparkOps::new(&reg)?;
-        let dw = DraftWeights::load(&ctx, dir, &self.w, &self.gemv, &dops)?;
+        // A DFlash2 checkpoint (`dflash_config`) or the native DSpark draft.
+        let df2_cfg = crate::dflash2::Df2Config::from_dir(dir)?;
+        let dw = match &df2_cfg {
+            Some(c) => DraftWeights::shell(&ctx, c)?,
+            None => DraftWeights::load(&ctx, dir, &self.w, &self.gemv, &dops)?,
+        };
         let c = &self.w.cfg;
         if dw.cfg.taps[3] != c.n_slots() || dw.cfg.taps[..3].iter().any(|&v| v >= c.n_slots()) {
             return Err(bad(format!("draft taps {:?} do not fit {} layer visits", dw.cfg.taps, c.n_slots())));
         }
         let mut sp = Spec::new(&ctx, dw, dops, k, self.s.tmax, self.capacity, c.n_slots(), c.kv_width(), c.dim, self.w.output.n as usize)?;
+        if let Some(cfg) = df2_cfg {
+            let df = crate::dflash2::Df2::load(&ctx, dir, cfg, &self.w, &self.ops, &sp.ops, k, self.s.tmax, sp.capacity)?;
+            eprintln!("dflash2 draft: {:.2} GB", df.bytes as f64 / 1e9);
+            sp.df2 = Some(Box::new(df));
+        }
         // Conv rollback table: (state, hist, channels) per slot and site.
         let (kvw, d) = (c.kv_width(), c.dim);
         let ho = hist_offsets(k + 1, kvw, d);
