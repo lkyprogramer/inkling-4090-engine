@@ -577,7 +577,7 @@ impl Gemv {
             quant: f("astral_quantize_x_q8")?,
             rb: [f("astral_gemv_f32_rowblock")?, f("astral_gemv_bf16_rowblock")?],
             multi: f("astral_gemv_q8_0_multi")?,
-            multi_t: (2..=8).map(|t| f(&format!("astral_gemv_q8_0_multi_t{t}"))).collect::<Result<_>>()?,
+            multi_t: (1..=8).map(|t| f(&format!("astral_gemv_q8_0_multi_t{t}"))).collect::<Result<_>>()?,
             multi_mma: f("astral_gemv_q8_0_multi_mma")?,
             small_mma: std::env::var_os("ASTRAL_SMALL_DP4A").is_none(),
             items: [f("astral_gemm_q8_0_items")?, f("astral_gemm_nvfp4_items")?],
@@ -969,7 +969,7 @@ impl Gemv {
     /// Whether [`Gemv::launch_q_multi_t`] takes these products.
     pub fn multi_t_ok(items: &[MultiItem], ntok: u32) -> bool {
         let k = items.first().map_or(0, |it| it.m.k);
-        (2..=8).contains(&ntok)
+        (1..=8).contains(&ntok)
             && (1..=8).contains(&items.len())
             && items.iter().all(|it| it.m.ty == GemvType::Q8_0 && it.m.n_mats == 1 && it.m.mat_scale.is_none() && it.m.k == k && it.x.k == k && it.x.slots >= ntok)
     }
@@ -1022,7 +1022,8 @@ impl Gemv {
     }
 
     /// Up to 8 single-matrix Q8_0 products with the same `k` for `ntok` (2..=8) tokens in one
-    /// launch: `y_i[t] = W_i x_i[t]` (activation rows 0..ntok of each `x_i`, outputs token-major
+    /// launch (1 token: the decode form of the same kernel, see `ASTRAL_DECODE_MT`):
+    /// `y_i[t] = W_i x_i[t]` (activation rows 0..ntok of each `x_i`, outputs token-major
     /// `[ntok][n_i]`). Each weight row is read once for all tokens. Check [`Gemv::multi_t_ok`].
     pub fn launch_q_multi_t(&self, stream: &Stream, items: &mut [MultiItem], ntok: u32) -> Result<()> {
         if !Self::multi_t_ok(items, ntok) {
@@ -1053,7 +1054,7 @@ impl Gemv {
         let cfg = LaunchConfig { grid: (blocks, 1, 1), block: (32 * Self::ROWS_PER_BLOCK, 1, 1), shared_mem_bytes: 0 };
         // SAFETY: MultiQ8 mirrors gemv.cu; planes validated at upload (n rows of k), activations
         // hold >= ntok rows of k (checked) and each y holds ntok * n values (checked above).
-        unsafe { self.multi_t[ntok as usize - 2].launch(cfg, stream, &mut params) }
+        unsafe { self.multi_t[ntok as usize - 1].launch(cfg, stream, &mut params) }
     }
 
     pub fn launch_q_multi(&self, stream: &Stream, items: &mut [MultiItem]) -> Result<()> {

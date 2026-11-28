@@ -510,6 +510,7 @@ extern "C" __global__ void __launch_bounds__(128) astral_gemv_q8_0_multi_mma(Mul
 
 #define Q8_MULTI_T_ENTRY(T) \
     extern "C" __global__ void __launch_bounds__(256) astral_gemv_q8_0_multi_t##T(MultiQ8 m, unsigned K) { PDL_WAIT(); q8_multi_t<T>(m, K); }
+Q8_MULTI_T_ENTRY(1)
 Q8_MULTI_T_ENTRY(2)
 Q8_MULTI_T_ENTRY(3)
 Q8_MULTI_T_ENTRY(4)

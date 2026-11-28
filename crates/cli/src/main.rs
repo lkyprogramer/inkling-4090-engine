@@ -20,7 +20,7 @@
 use astral_core::Result;
 use std::process::ExitCode;
 
-const USAGE: &str = "usage: astral <hw [--bench | --bench-fresh] | selftest | gguf-info <model> [--tensors] | verify-embd <file> <log> | verify-model <file> <log> | generate <model> <n> <ids...> | dump-logits <model> <llama kld base> <out> | dump-final-logits <model> <manifest> <out dir> | dump-verify-logits <model> <checkpoint dir> <k> <manifest> <out dir> | trace <model> <manifest> <out dir> | ls-diag <model> <first> <ids...|@file> | spec-generate <model> <checkpoint dir> <k> <n> <ids...|@file> | serve <model> [--checkpoint <dir>] [--draft <dir>] [--draft-alt <dir> --alt-from 4096] [--no-draft] [--k 6] [--host 0.0.0.0] [--port 8000] [--ctx 8192] [--name inkling-2-mini] | version>";
+const USAGE: &str = "usage: astral <hw [--bench | --bench-fresh] | selftest | gguf-info <model> [--tensors] | verify-embd <file> <log> | verify-model <file> <log> | generate <model> <n> <ids...> | dump-logits <model> <llama kld base> <out> | dump-final-logits <model> <manifest> <out dir> | dump-verify-logits <model> <checkpoint dir> <k> <manifest> <out dir> | trace <model> <manifest> <out dir> | ls-diag <model> <first> <ids...|@file> | t45-diff <model> <p> <k> <ids...|@file> | spec-generate <model> <checkpoint dir> <k> <n> <ids...|@file> | serve <model> [--checkpoint <dir>] [--draft <dir>] [--draft-alt <dir> --alt-from 4096] [--no-draft] [--k 6] [--host 0.0.0.0] [--port 8000] [--ctx 8192] [--name inkling-2-mini] | version>";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -46,6 +46,7 @@ fn main() -> ExitCode {
         Some("dump-verify-logits") if args.len() >= 6 => cmd_dump_verify_logits(&args[1], &args[2], &args[3], &args[4], &args[5]),
         Some("cmp-prefill") if args.len() >= 3 => cmd_cmp_prefill(&args[1], &args[2..]),
         Some("ls-diag") if args.len() >= 4 => cmd_ls_diag(&args[1], &args[2], &args[3..]),
+        Some("t45-diff") if args.len() >= 5 => cmd_t45_diff(&args[1], &args[2], &args[3], &args[4..]),
         Some("spec-generate") if args.len() >= 6 => cmd_spec_generate(&args[1], &args[2], &args[3], &args[4], &args[5..]),
         Some("kbench") if args.len() >= 5 && args[1] == "mxfp4-gemv" => cmd_kbench_mxfp4(&args[2..], false),
         Some("kbench") if args.len() >= 5 && args[1] == "mxfp4-mma" => cmd_kbench_mxfp4(&args[2..], true),
@@ -538,6 +539,71 @@ fn cmd_dump_final_logits(path: &str, manifest: &str, out: &str) -> Result<bool> 
             }
         }
         println!("{name}: {} lengths up to {}", lens.len(), lens[lens.len() - 1]);
+    }
+    Ok(true)
+}
+
+/// `t45-diff <model> <p> <k> <ids...|@file>`: T45, decode vs verify at one position. After the
+/// same prefill of `ids[..p]`: (A) one decode step of `ids[p]` and (B) one (k + 1)-token pass of
+/// `ids[p..=p + k]` (a verify pass's kernels), both eager with every layer slot's output captured.
+/// One JSON line per slot comparing row 0 (max |a - b|, bit-identical or not), then the first
+/// slot that differs. With `ASTRAL_T45_TAP=1 ASTRAL_TAP_LAYER=l` also the debug taps inside
+/// layer l (row 0; the debug mode unfuses some kernels in both runs alike).
+fn cmd_t45_diff(path: &str, p: &str, k: &str, ids: &[String]) -> Result<bool> {
+    let bad = |m: String| astral_core::AstralError::Invalid(m);
+    let ids = read_ids(ids)?;
+    let p: usize = p.parse().map_err(|_| bad("p must be a number".into()))?;
+    let k: usize = k.parse().map_err(|_| bad("k must be a number".into()))?;
+    if p == 0 || k == 0 || k > 7 || p + k + 1 > ids.len() {
+        return Err(bad(format!("t45-diff: need 1 <= p, 1 <= k <= 7, p + k + 1 <= {}", ids.len())));
+    }
+    let taps = std::env::var_os("ASTRAL_T45_TAP").is_some();
+    let mut s = load_session(path, (p + k + 16) as u32)?;
+    type Caps = (Vec<(usize, Vec<f32>)>, Vec<(&'static str, Vec<f32>)>);
+    let mut run = |n: usize| -> Result<Caps> {
+        s.reset()?;
+        s.capture = false;
+        s.set_debug(false);
+        s.prefill(&ids[..p])?;
+        s.capture = true;
+        s.set_debug(taps);
+        if n == 1 {
+            s.step(ids[p])?;
+        } else {
+            s.prefill(&ids[p..p + n])?;
+        }
+        let c = std::mem::take(&mut s.captured);
+        let d = s.take_debug();
+        s.capture = false;
+        s.set_debug(false);
+        Ok((c, d))
+    };
+    let (ca, da) = run(1)?;
+    let (cb, db) = run(k + 1)?;
+    if ca.len() != cb.len() {
+        return Err(bad(format!("t45-diff: {} vs {} captured slots", ca.len(), cb.len())));
+    }
+    let cmp = |a: &[f32], b: &[f32]| -> (f64, bool) {
+        let n = a.len().min(b.len());
+        let m = a[..n].iter().zip(&b[..n]).map(|(x, y)| (*x as f64 - *y as f64).abs()).fold(0.0, f64::max);
+        (m, a[..n].iter().zip(&b[..n]).all(|(x, y)| x.to_bits() == y.to_bits()))
+    };
+    let mut first = None;
+    for (i, ((sa, va), (sb, vb))) in ca.iter().zip(&cb).enumerate() {
+        let d = va.len();
+        let (m, same) = cmp(va, &vb[..d.min(vb.len())]);
+        if !same && first.is_none() {
+            first = Some((i, *sa));
+        }
+        println!("{}", serde_json::json!({"visit": i, "slot": sa, "slot_b": sb, "max_abs": m, "identical": same}));
+    }
+    for ((na, va), (nb, vb)) in da.iter().zip(&db) {
+        let (m, same) = cmp(va, vb);
+        println!("{}", serde_json::json!({"tap": na, "tap_b": nb, "max_abs": m, "identical": same}));
+    }
+    match first {
+        Some((i, slot)) => println!("first difference: visit {i} (slot {slot}) of {}", ca.len()),
+        None => println!("row 0 identical in all {} slots", ca.len()),
     }
     Ok(true)
 }

@@ -512,6 +512,11 @@ impl Exec<'_> {
     /// GEMM over the dense items for more.
     fn mm(&self, m: &GemvMatrix, qa: &QAct, y: &mut DeviceBuffer<f32>, ntok: usize, dense: &DeviceBuffer<u32>, work: &DevWork) -> Result<()> {
         if ntok == 1 {
+            let mut it = [MultiItem { m, x: qa, y }];
+            if decode_mt() && Gemv::multi_t_ok(&it, 1) {
+                return self.gemv.launch_q_multi_t(self.st, &mut it, 1);
+            }
+            let [MultiItem { y, .. }] = it;
             self.gemv.launch_q(self.st, m, qa, y, None)
         } else if small_batch(ntok) {
             // Every weight row read once for all rows (verify passes): the fused T-token GEMV,
@@ -533,7 +538,7 @@ impl Exec<'_> {
 
     /// `y[t] = W x[t]` with f32 activations (F32 / BF16 weights), `x` token-major of width k.
     fn mm_f32(&self, m: &GemvMatrix, x: &DeviceBuffer<f32>, y: &mut DeviceBuffer<f32>, ntok: usize, zero_ids: &DeviceBuffer<i32>) -> Result<()> {
-        if ntok == 1 {
+        if ntok == 1 && !decode_mt() {
             self.gemv.launch(self.st, m, x, 0, y)
         } else {
             self.gemv.launch_ids(self.st, m, x, m.k, y, &zero_ids.view(0, ntok)?)
@@ -1490,6 +1495,18 @@ fn decode_q8_mma() -> bool {
     std::env::var_os("ASTRAL_DECODE_DP4A").is_none() && std::env::var_os("ASTRAL_SMALL_DP4A").is_none()
 }
 
+/// K12 / T45 (default; `ASTRAL_DECODE_LEGACY=1` restores the separate decode kernels below):
+/// a decode step runs as a one-row verify pass. Q8_0 products
+/// through the 1-row form of the verify kernel (`launch_q_multi_t`) instead of the tensor-core
+/// fused GEMV and the single-matrix dp4a GEMV; F32 products through `launch_ids`; attention with
+/// the verify passes' looped splits; MoE experts grouped into items as in verify; combine and
+/// post conv through `moe_combine_t` / `conv_res_par`. Decode then shares kernels and
+/// accumulation order with every row of a verify pass: speculative output equals plain greedy
+/// output token for token, and decode is ~6% faster on an RTX 4090 (149.9 vs 141.8 tok/s).
+fn decode_mt() -> bool {
+    std::env::var_os("ASTRAL_DECODE_LEGACY").is_none()
+}
+
 /// Whether the Q8_0 products of 2..=8-token passes (DSpark verify and draft) run on tensor cores
 /// (`launch_q_multi_mma`) or with dp4a (`launch_q_multi_t`). Tensor cores on most GPUs, dp4a on
 /// an RTX 4090 (sm_89), where the tensor-core kernel reads the 201024-row LM head
@@ -1595,7 +1612,8 @@ fn layer(
     let rows = (kc.len() / cfg.kv_width()) as u32;
     let kvw = cfg.kv_width();
     let rs = s.tmax * d;
-    let tap = ntok == 1 && s.dbg.is_some() && loop_i.is_none() && ip == tap_layer();
+    // Debug taps: decode steps, or (ASTRAL_T45_TAP=1, T45) row 0 of any pass.
+    let tap = (ntok == 1 || std::env::var_os("ASTRAL_T45_TAP").is_some()) && s.dbg.is_some() && loop_i.is_none() && ip == tap_layer();
     macro_rules! tap {
         ($name:literal, $buf:ident) => {
             if tap {
@@ -1746,7 +1764,9 @@ fn layer(
             }
         }
         // Decode: one fused GEMV, on tensor cores unless dp4a is asked for (decode_q8_mma).
-        if ntok == 1 && s.decode_mma && l.wq.k.is_multiple_of(128) {
+        if ntok == 1 && decode_mt() && Gemv::multi_t_ok(&items, 1) {
+            ex.gemv.launch_q_multi_t(st, &mut items, 1)?;
+        } else if ntok == 1 && s.decode_mma && l.wq.k.is_multiple_of(128) {
             ex.gemv.launch_q_multi_mma(st, &mut items, 1)?;
         } else if ntok == 1 {
             ex.gemv.launch_q_multi(st, &mut items)?;
@@ -1865,10 +1885,10 @@ fn layer(
         // Decode: one chunk per split over the whole capacity (measured fastest). Verify passes:
         // a capped split count with each split looping over chunks (no idle blocks at large
         // contexts). Prefill: exact splits for the chunk's last position.
-        let chunk_loop = small_batch(ntok);
+        let chunk_loop = small_batch(ntok) || (ntok == 1 && decode_mt());
         // A sliding-window query spans at most the window: its splits past that exit at once.
         let span = if l.swa { capacity.min(cfg.n_swa) } else { capacity };
-        let splits = if ntok == 1 {
+        let splits = if ntok == 1 && !chunk_loop {
             span.div_ceil(ATT_CHUNK)
         } else if chunk_loop {
             capacity.div_ceil(ATT_CHUNK).min(graph_splits())
@@ -1897,7 +1917,7 @@ fn layer(
     {
         let mut bank_row = if starts_block { Some(s.bank.view_mut(*next_row * rs, rs)?) } else { None };
         let br = bank_row.as_mut().map(|b| b as &mut dyn DevMut<f32>);
-        if ntok == 1 {
+        if ntok == 1 && !decode_mt() {
             ex.ops.conv_residual(st, &s.o, None, nt, &mut conv.view_mut(2 * kvw * 3, 3 * d)?, &l.attn_post_conv, &mut s.cur, br, du)?;
         } else {
             let mut ha = match (hist.as_mut(), hoff) {
@@ -1967,14 +1987,14 @@ fn layer(
         p.f(st, "router.w", &s.w, 0, k as usize, Vec::new())?;
     }
     let pairs = ntok * k as usize;
-    if ntok == 1 {
+    if ntok == 1 && !decode_mt() {
         let ids = s.ids.view(0, k as usize)?;
         ex.gemv.launch_q(st, &l.gate_up, &s.qa[0], &mut s.gu, Some(&ids as &dyn Dev<i32>))?;
         ex.ops.situ_q8(st, &s.gu, &mut s.qa_ff, k, cfg.situ_beta, cfg.situ_lb)?;
         ex.gemv.launch_q(st, &l.down, &s.qa_ff, &mut s.y, Some(&ids as &dyn Dev<i32>))?;
     } else {
         let p32 = pairs as u32;
-        if small_batch(ntok) {
+        if small_batch(ntok) || ntok == 1 {
             // Few tokens (verify passes): dp4a grouped GEMV, each used expert read once, grouped
             // on the GPU (graph-capturable).
             let mi = astral_kernels::inkling::moe_items_bound(p32, cfg.n_expert as u32);
@@ -2038,7 +2058,7 @@ fn layer(
     // Combine, post conv and the residual add.
     let wv = s.w.view(0, pairs)?;
     let st_off = (2 * kvw + d) * 3;
-    if ntok == 1 {
+    if ntok == 1 && !decode_mt() {
         ex.ops.conv_residual(st, &s.y, Some((&wv as &dyn Dev<f32>, k)), nt, &mut conv.view_mut(st_off, 3 * d)?, &l.ffn_post_conv, &mut s.cur, None, du)
     } else {
         ex.ops.moe_combine_t(st, &s.y, &wv, &mut s.o, du, k, nt)?;
